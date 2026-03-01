@@ -1,7 +1,5 @@
 import Phaser from 'phaser';
-import { BootScene } from './scenes/BootScene';
-import { PatrolScene } from './scenes/PatrolScene';
-import { HUDScene } from './scenes/HUDScene';
+import { RunnerScene } from './scenes/RunnerScene';
 
 export const GAME_WIDTH = 800;
 export const GAME_HEIGHT = 600;
@@ -18,9 +16,13 @@ export const phaserConfig: Phaser.Types.Core.GameConfig = {
   physics: {
     default: 'arcade',
     arcade: {
-      gravity: { x: 0, y: 0 },
+      gravity: { x: 0, y: 600 },
       debug: false,
     },
   },
-  scene: [BootScene, PatrolScene, HUDScene],
+  scene: [RunnerScene],
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
 };
