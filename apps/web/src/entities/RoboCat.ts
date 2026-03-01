@@ -61,6 +61,9 @@ export class RoboCat {
   get eJustDown(): boolean {
     return Phaser.Input.Keyboard.JustDown(this.keyE);
   }
+  get eIsDown(): boolean {
+    return this.keyE?.isDown ?? false;
+  }
 
   // Score
   private _score = 0;
