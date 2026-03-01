@@ -87,7 +87,7 @@ jobs:
   lighthouse:
     name: Lighthouse CI
     runs-on: ubuntu-latest
-    continue-on-error: true  # Advisory — canvas games don't fully support Lighthouse
+    continue-on-error: true # Advisory — canvas games don't fully support Lighthouse
     needs: build
     steps:
       - uses: actions/checkout@v4
