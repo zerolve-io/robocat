@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
-export const GAME_WIDTH = 800;
-export const GAME_HEIGHT = 600;
+export const GAME_WIDTH = typeof window !== 'undefined' ? window.innerWidth : 800;
+export const GAME_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 600;
 
 /**
  * Base Phaser config WITHOUT scene — scene is added in main.ts
@@ -12,9 +12,7 @@ export const phaserConfig: Phaser.Types.Core.GameConfig = {
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   backgroundColor: '#0a0a0f',
-  antialias: false,
-  pixelArt: true,
-  roundPixels: true,
+  antialias: true,
   powerPreference: 'high-performance',
   physics: {
     default: 'arcade',
@@ -25,7 +23,7 @@ export const phaserConfig: Phaser.Types.Core.GameConfig = {
   },
   scene: [],
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
 };
