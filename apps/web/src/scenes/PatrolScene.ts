@@ -4,7 +4,7 @@ import {
   TILE_SIZE,
   GRID_COLS,
   GRID_ROWS,
-  TileKind,
+  TileType,
 } from '../generation/CityGenerator';
 import { hashSeed } from '@robocat/shared';
 import { RoboCat } from '../entities/RoboCat';
@@ -67,8 +67,9 @@ void HUD_SCORE_KEY;
 void HUD_POUNCE_COOLDOWN_KEY;
 
 export class PatrolScene extends Phaser.Scene {
-  private tileGrid!: TileKind[][];
+  private tileGrid!: TileType[][];
   private buildingGroup!: Phaser.Physics.Arcade.StaticGroup;
+  private cityMood: import('../generation/CityGenerator').CityMood = 'clear';
   private roboCat!: RoboCat;
   private drone!: Drone;
   private attentionSystem!: AttentionSystem;
@@ -123,6 +124,7 @@ export class PatrolScene extends Phaser.Scene {
 
     this.generator = new CityGenerator(this.patrolSeed);
     this.tileGrid = this.generator.generate();
+    this.cityMood = this.generator.mood;
     this.buildingGroup = this.physics.add.staticGroup();
     this.drawWorld();
 
@@ -394,10 +396,10 @@ export class PatrolScene extends Phaser.Scene {
   private spawnChargingCrate(spawnCol: number, spawnRow: number): void {
     let crateCol = spawnCol + 3;
     let crateRow = spawnRow;
-    if (crateCol >= GRID_COLS || this.tileGrid[crateRow]?.[crateCol] === TileKind.Building) {
+    if (crateCol >= GRID_COLS || this.tileGrid[crateRow]?.[crateCol] === TileType.BUILDING) {
       crateCol = Math.max(1, spawnCol - 3);
     }
-    if (this.tileGrid[crateRow]?.[crateCol] === TileKind.Building) {
+    if (this.tileGrid[crateRow]?.[crateCol] === TileType.BUILDING) {
       crateCol = spawnCol;
       crateRow = Math.min(GRID_ROWS - 2, spawnRow + 3);
     }
@@ -471,7 +473,11 @@ export class PatrolScene extends Phaser.Scene {
     const paths: { col: number; row: number }[] = [];
     for (let row = 2; row < GRID_ROWS - 2; row++) {
       for (let col = 2; col < GRID_COLS - 2; col++) {
-        if (this.tileGrid[row][col] === TileKind.Path) {
+        if (
+          this.tileGrid[row][col] === TileType.PATH ||
+          this.tileGrid[row][col] === TileType.VENT ||
+          this.tileGrid[row][col] === TileType.PUDDLE
+        ) {
           paths.push({ col, row });
         }
       }
@@ -636,21 +642,39 @@ export class PatrolScene extends Phaser.Scene {
   }
 
   private updateNeonFlash(delta: number): void {
+    const now = Date.now();
     for (const tile of this.neonTiles) {
-      if (tile.flashTimer > 0) {
-        tile.flashTimer -= delta;
-        tile.gfx.clear();
-        if (tile.hacked) {
+      // Neon glow pulse — sine wave on alpha, phase-offset per tile position
+      const phase = (tile.col * 0.37 + tile.row * 0.23) * Math.PI;
+      const pulse = 0.45 + 0.35 * Math.sin(now * 0.003 + phase);
+
+      if (tile.hacked) {
+        // Hacked tiles: steady green glow (no pulse needed)
+        if (tile.flashTimer > 0) {
+          tile.flashTimer -= delta;
+          tile.gfx.clear();
           tile.gfx.fillStyle(0x00ff88, 0.4);
           tile.gfx.fillRect(tile.worldX + 4, tile.worldY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
           tile.gfx.lineStyle(1, 0x00ff88, 0.8);
           tile.gfx.strokeRect(tile.worldX + 4, tile.worldY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
-        } else if (tile.flashColor !== null) {
-          const flashAlpha = (tile.flashTimer > 0 ? 1 : 0) * 0.6;
+        }
+      } else if (tile.flashTimer > 0) {
+        // Flash animation (hack fail/success)
+        tile.flashTimer -= delta;
+        tile.gfx.clear();
+        if (tile.flashColor !== null) {
+          const flashAlpha = (tile.flashTimer / 400) * 0.6;
           tile.gfx.fillStyle(tile.flashColor, flashAlpha);
           tile.gfx.fillRect(tile.worldX, tile.worldY, TILE_SIZE, TILE_SIZE);
           if (tile.flashTimer <= 0) tile.flashColor = null;
         }
+      } else {
+        // Idle pulse
+        tile.gfx.clear();
+        tile.gfx.fillStyle(0x00ffff, pulse * 0.2);
+        tile.gfx.fillRect(tile.worldX + 4, tile.worldY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+        tile.gfx.lineStyle(1, 0x00ffff, pulse * 0.8);
+        tile.gfx.strokeRect(tile.worldX + 4, tile.worldY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
       }
     }
   }
@@ -674,7 +698,9 @@ export class PatrolScene extends Phaser.Scene {
   private collectNeonTiles(): void {
     for (let row = 0; row < GRID_ROWS; row++) {
       for (let col = 0; col < GRID_COLS; col++) {
-        if (this.tileGrid[row][col] === TileKind.Neon) {
+        const kind = this.tileGrid[row][col];
+        // NEON and TERMINAL tiles are hackable
+        if (kind === TileType.NEON || kind === TileType.TERMINAL) {
           const worldX = col * TILE_SIZE;
           const worldY = row * TILE_SIZE;
           const gfx = this.add.graphics();
@@ -696,22 +722,41 @@ export class PatrolScene extends Phaser.Scene {
 
   // ── World drawing ─────────────────────────────────────────────────────────
 
+  /**
+   * Small deterministic hash for per-tile color variation (no PRNG state needed).
+   * Returns a float in [0, 1).
+   */
+  private _tileHash(col: number, row: number): number {
+    let h = ((col * 2246822519) ^ (row * 3266489917)) >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
+    return (h >>> 0) / 4294967296;
+  }
+
   private drawWorld(): void {
     const graphics = this.add.graphics();
+
     for (let row = 0; row < GRID_ROWS; row++) {
       for (let col = 0; col < GRID_COLS; col++) {
         const kind = this.tileGrid[row][col];
         const x = col * TILE_SIZE;
         const y = row * TILE_SIZE;
+        const th = this._tileHash(col, row);
+
         switch (kind) {
-          case TileKind.Building:
-            graphics.fillStyle(0x1a1a2e);
+          case TileType.BUILDING: {
+            // Slight color variation: base hue between 0x1a1a2e and 0x1e2035
+            const shade = 0x1a1a2e + Math.floor(th * 0x06060a);
+            graphics.fillStyle(shade);
             graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-            graphics.lineStyle(1, 0x2a2a3e, 0.8);
+            graphics.lineStyle(1, 0x2a2a40, 0.7);
             graphics.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
             this.addBuildingBody(x, y, TILE_SIZE, TILE_SIZE);
             break;
-          case TileKind.Neon:
+          }
+          case TileType.NEON:
+          case TileType.TERMINAL: {
+            // TERMINAL is cyan like neon but will pulse independently
             graphics.fillStyle(0x0d0d18);
             graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
             graphics.fillStyle(0x00ffff, 0.15);
@@ -719,11 +764,162 @@ export class PatrolScene extends Phaser.Scene {
             graphics.lineStyle(1, 0x00ffff, 0.6);
             graphics.strokeRect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 8);
             break;
-          default:
+          }
+          case TileType.VENT: {
+            // Dark purple
+            graphics.fillStyle(0x1a0a2e);
+            graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+            graphics.lineStyle(1, 0x5500aa, 0.6);
+            graphics.strokeRect(x + 3, y + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+            // Vent slats
+            graphics.lineStyle(1, 0x5500aa, 0.4);
+            for (let i = 0; i < 4; i++) {
+              const ly = y + 6 + i * 5;
+              graphics.lineBetween(x + 5, ly, x + TILE_SIZE - 5, ly);
+            }
+            break;
+          }
+          case TileType.STEAM: {
+            // Gray base — particles handled at runtime
+            graphics.fillStyle(0x2a2a3a);
+            graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+            graphics.lineStyle(1, 0x999999, 0.3);
+            graphics.strokeRect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+            break;
+          }
+          case TileType.PUDDLE: {
+            // Dark blue, reflective feel
+            const pathBase = 0x16213e;
+            graphics.fillStyle(pathBase);
+            graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+            graphics.fillStyle(0x0a1a40, 0.7);
+            graphics.fillEllipse(
+              x + TILE_SIZE / 2,
+              y + TILE_SIZE / 2,
+              TILE_SIZE - 8,
+              TILE_SIZE - 12
+            );
+            graphics.lineStyle(1, 0x1133aa, 0.5);
+            graphics.strokeEllipse(
+              x + TILE_SIZE / 2,
+              y + TILE_SIZE / 2,
+              TILE_SIZE - 8,
+              TILE_SIZE - 12
+            );
+            break;
+          }
+          case TileType.KIOSK: {
+            // Orange kiosk
             graphics.fillStyle(0x16213e);
             graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+            graphics.fillStyle(0xff8800, 0.3);
+            graphics.fillRect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+            graphics.lineStyle(2, 0xff8800, 0.8);
+            graphics.strokeRect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 8);
             break;
+          }
+          case TileType.LADDER: {
+            // Yellow ladder marker
+            graphics.fillStyle(0x16213e);
+            graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+            graphics.lineStyle(2, 0xffee00, 0.8);
+            // Two vertical rails
+            graphics.lineBetween(x + 8, y + 4, x + 8, y + TILE_SIZE - 4);
+            graphics.lineBetween(x + TILE_SIZE - 8, y + 4, x + TILE_SIZE - 8, y + TILE_SIZE - 4);
+            // Rungs
+            for (let rung = 0; rung < 4; rung++) {
+              const ry = y + 6 + rung * 6;
+              graphics.lineBetween(x + 8, ry, x + TILE_SIZE - 8, ry);
+            }
+            break;
+          }
+          case TileType.CRATE: {
+            // Green crate
+            graphics.fillStyle(0x16213e);
+            graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+            graphics.fillStyle(0x00ff88, 0.2);
+            graphics.fillRect(x + 3, y + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+            graphics.lineStyle(2, 0x00ff88, 0.8);
+            graphics.strokeRect(x + 3, y + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+            // Cross mark
+            graphics.lineStyle(1, 0x00ff88, 0.6);
+            graphics.lineBetween(x + 6, y + TILE_SIZE / 2, x + TILE_SIZE - 6, y + TILE_SIZE / 2);
+            graphics.lineBetween(x + TILE_SIZE / 2, y + 6, x + TILE_SIZE / 2, y + TILE_SIZE - 6);
+            break;
+          }
+          default: {
+            // PATH — subtle noise variation
+            const pathShade = 0x161e38 + Math.floor(th * 0x04060a);
+            graphics.fillStyle(pathShade);
+            graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+            break;
+          }
         }
+      }
+    }
+
+    // ── Neon pulse layer (drawn over static tiles, animated at runtime) ──────
+    // We create individual graphics objects for each neon tile so they can pulse
+    for (const neon of this.neonTiles) {
+      // initial draw is handled by updateNeonPulse via update loop
+      void neon;
+    }
+
+    // ── Steam particle emitters for STEAM tiles ───────────────────────────────
+    this._setupSteamParticles();
+  }
+
+  /** Spawn lightweight steam particle effects for STEAM tiles */
+  private _setupSteamParticles(): void {
+    for (let row = 0; row < GRID_ROWS; row++) {
+      for (let col = 0; col < GRID_COLS; col++) {
+        if (this.tileGrid[row][col] !== TileType.STEAM) continue;
+        const cx = col * TILE_SIZE + TILE_SIZE / 2;
+        const cy = row * TILE_SIZE + TILE_SIZE / 2;
+
+        // Staggered steam burst using time event
+        const delay = Math.floor(this._tileHash(col, row) * 3000);
+        this.time.addEvent({
+          delay: 2500 + delay,
+          loop: true,
+          startAt: delay,
+          callback: () => {
+            if (!this.scene.isActive()) return;
+            for (let i = 0; i < 4; i++) {
+              const gfx = this.add.graphics();
+              gfx.setDepth(6);
+              const angle = -Math.PI / 2 + ((Math.random() - 0.5) * Math.PI) / 3;
+              const speed = 15 + Math.random() * 15;
+              let vx = Math.cos(angle) * speed;
+              let vy = Math.sin(angle) * speed;
+              let px = cx;
+              let py = cy;
+              let life = 600 + Math.random() * 400;
+              const maxLife = life;
+              const ev = (_t: number, d: number) => {
+                life -= d;
+                if (life <= 0) {
+                  gfx.destroy();
+                  return;
+                }
+                px += (vx * d) / 1000;
+                py += (vy * d) / 1000;
+                vx *= 0.99;
+                vy *= 0.99;
+                const alpha = (life / maxLife) * 0.5;
+                const sz = 2 + (1 - life / maxLife) * 3;
+                gfx.clear();
+                gfx.fillStyle(0xaaaaaa, alpha);
+                gfx.fillCircle(px, py, sz);
+              };
+              this.events.on('update', ev);
+              this.time.delayedCall(maxLife, () => {
+                this.events.off('update', ev);
+                if (gfx.active) gfx.destroy();
+              });
+            }
+          },
+        });
       }
     }
   }
@@ -747,7 +943,7 @@ export class PatrolScene extends Phaser.Scene {
             col < GRID_COLS &&
             row >= 0 &&
             row < GRID_ROWS &&
-            this.tileGrid[row][col] !== TileKind.Building
+            this.tileGrid[row][col] !== TileType.BUILDING
           ) {
             return { x: col, y: row };
           }
