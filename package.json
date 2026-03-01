@@ -29,5 +29,6 @@
     "*.{js,mjs,json,md}": [
       "prettier --write"
     ]
-  }
+  },
+  "packageManager": "pnpm@10.30.3"
 }
