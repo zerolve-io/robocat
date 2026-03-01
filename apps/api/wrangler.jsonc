@@ -1,0 +1,10 @@
+/**
+ * @file wrangler.jsonc
+ * Cloudflare Worker configuration for the RoboCat API stub.
+ */
+{
+  "name": "robocat-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-05-24",
+  "node_compat": false
+}

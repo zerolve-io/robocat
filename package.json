@@ -1,0 +1,13 @@
+{
+  "name": "robocat",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm -F web dev",
+    "build": "pnpm -F web build",
+    "type-check": "pnpm -r run type-check"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
