@@ -25,7 +25,15 @@ const COLORS = {
 
 const GROUND_Y = GAME_HEIGHT - 100;
 const CAT_X = 150;
-const POUNCE_VELOCITY = -400;
+const JUMP_VELOCITY = -420;
+const DOUBLE_JUMP_VELOCITY = -380;
+const DASH_VELOCITY = 400;
+const DASH_DURATION = 200; // ms
+const WALL_SLIDE_VELOCITY = 80; // slow fall
+const WALL_JUMP_VELOCITY_X = 200;
+const WALL_JUMP_VELOCITY_Y = -350;
+const POUNCE_VELOCITY = 500; // downward slam
+const POUNCE_BOUNCE = -450; // bounce after hitting drone
 const SCROLL_SPEED_BASE = 250;
 const SCROLL_SPEED_CAP = 500;
 const SCROLL_SPEED_GAIN = 0.5; // per score point
@@ -54,6 +62,19 @@ export class RunnerScene extends Phaser.Scene {
   private gameOver = false;
   private started = false;
 
+  // Movement state
+  private canDoubleJump = true;
+  private canDash = true;
+  private isDashing = false;
+  private dashEndTime = 0;
+  private isWallSliding = false;
+  private wallSlideSide: 'left' | 'right' | null = null;
+  private isPouncing = false;
+
+  // Input
+  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private shiftKey!: Phaser.Input.Keyboard.Key;
+
   private lastBuildingX = 0;
   private buildingPool: Phaser.GameObjects.Rectangle[] = [];
 
@@ -68,6 +89,13 @@ export class RunnerScene extends Phaser.Scene {
     this.started = false;
     this.lastBuildingX = 0;
     this.buildingPool = [];
+    this.canDoubleJump = true;
+    this.canDash = true;
+    this.isDashing = false;
+    this.dashEndTime = 0;
+    this.isWallSliding = false;
+    this.wallSlideSide = null;
+    this.isPouncing = false;
 
     // Load high score
     this.highScore = parseInt(localStorage.getItem('robocat_highscore') || '0', 10);
@@ -100,30 +128,49 @@ export class RunnerScene extends Phaser.Scene {
 
     // Instructions
     this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, 'TAP or SPACE to pounce', {
-        fontFamily: 'monospace',
-        fontSize: '20px',
-        color: '#ffffff',
-      })
+      .text(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2 - 50,
+        'SPACE/TAP: Jump  |  SHIFT: Dash  |  DOWN: Pounce',
+        {
+          fontFamily: 'monospace',
+          fontSize: '18px',
+          color: '#ffffff',
+        }
+      )
       .setOrigin(0.5)
       .setAlpha(0.8);
 
     this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'Avoid drones. Collect scraps.', {
-        fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#888888',
-      })
+      .text(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2,
+        'Double-tap to double jump. Wall-slide on buildings.',
+        {
+          fontFamily: 'monospace',
+          fontSize: '14px',
+          color: '#888888',
+        }
+      )
       .setOrigin(0.5)
       .setAlpha(0.6);
 
     // Input
-    this.input.on('pointerdown', () => this.pounce());
-    this.input.keyboard?.on('keydown-SPACE', () => this.pounce());
+    this.cursors = this.input.keyboard!.createCursorKeys();
+    this.shiftKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
 
-    // Collision
-    this.physics.add.collider(this.cat, this.buildings);
-    this.physics.add.overlap(this.cat, this.drones, () => this.onHitDrone());
+    this.input.on('pointerdown', () => this.handleJump());
+    this.input.keyboard?.on('keydown-SPACE', () => this.handleJump());
+    this.input.keyboard?.on('keydown-SHIFT', () => this.handleDash());
+    this.input.keyboard?.on('keydown-DOWN', () => this.handlePounce());
+
+    // Collision — use callback to detect wall slides
+    this.physics.add.collider(this.cat, this.buildings, (_cat, building) => {
+      this.onBuildingCollision(building as Phaser.GameObjects.Rectangle);
+    });
+    this.physics.add.overlap(this.cat, this.drones, (_cat, drone) => {
+      this.onDroneContact(drone as Phaser.GameObjects.Container);
+    });
     this.physics.add.overlap(this.cat, this.scraps, (_cat, scrap) => {
       this.onCollectScrap(scrap as Phaser.GameObjects.Arc);
     });
@@ -308,74 +355,407 @@ export class RunnerScene extends Phaser.Scene {
     return building;
   }
 
-  private pounce(): void {
+  private startGame(): void {
+    if (this.started) return;
+    this.started = true;
+    // Remove instructions
+    this.children.list
+      .filter(
+        (c) =>
+          c instanceof Phaser.GameObjects.Text &&
+          ((c as Phaser.GameObjects.Text).text.includes('SPACE') ||
+            (c as Phaser.GameObjects.Text).text.includes('Double-tap'))
+      )
+      .forEach((c) => c.destroy());
+  }
+
+  private handleJump(): void {
     if (this.gameOver) {
       this.restart();
       return;
     }
 
-    if (!this.started) {
-      this.started = true;
-      // Remove instructions
-      this.children.list
-        .filter(
-          (c) =>
-            c instanceof Phaser.GameObjects.Text &&
-            (c as Phaser.GameObjects.Text).text.includes('TAP')
-        )
-        .forEach((c) => c.destroy());
-      this.children.list
-        .filter(
-          (c) =>
-            c instanceof Phaser.GameObjects.Text &&
-            (c as Phaser.GameObjects.Text).text.includes('Avoid')
-        )
-        .forEach((c) => c.destroy());
+    this.startGame();
+
+    const onGround = this.catBody.blocked.down || this.catBody.touching.down;
+
+    // Wall jump
+    if (this.isWallSliding && this.wallSlideSide) {
+      this.isWallSliding = false;
+      const jumpX = this.wallSlideSide === 'right' ? -WALL_JUMP_VELOCITY_X : WALL_JUMP_VELOCITY_X;
+      this.catBody.setVelocity(jumpX, WALL_JUMP_VELOCITY_Y);
+      this.canDoubleJump = true; // Reset double jump after wall jump
+      this.createJumpEffect();
+      this.wallSlideSide = null;
+      return;
     }
 
-    // Only pounce if on or near ground
-    if (this.catBody.blocked.down || this.catBody.touching.down || this.cat.y > GROUND_Y - 80) {
-      this.catBody.setVelocityY(POUNCE_VELOCITY);
+    // Ground jump
+    if (onGround) {
+      this.catBody.setVelocityY(JUMP_VELOCITY);
+      this.canDoubleJump = true;
+      this.createJumpEffect();
+      return;
+    }
 
-      // Pounce animation - rotate cat
-      this.tweens.add({
-        targets: this.cat,
-        angle: -15,
-        duration: 100,
-        yoyo: true,
-        ease: 'Quad.easeOut',
-      });
+    // Double jump (air)
+    if (this.canDoubleJump && !onGround) {
+      this.catBody.setVelocityY(DOUBLE_JUMP_VELOCITY);
+      this.canDoubleJump = false;
+      this.createDoubleJumpEffect();
+    }
+  }
 
-      // Thruster glow burst
-      this.thrusterFireL.setAlpha(0.9);
-      this.thrusterFireR.setAlpha(0.9);
+  private handleDash(): void {
+    if (this.gameOver || !this.canDash || this.isDashing) return;
+
+    this.startGame();
+
+    this.isDashing = true;
+    this.canDash = false;
+    this.dashEndTime = this.time.now + DASH_DURATION;
+
+    // Horizontal burst
+    this.catBody.setVelocityX(DASH_VELOCITY);
+    this.catBody.setVelocityY(0); // Cancel vertical momentum
+    this.catBody.setAllowGravity(false);
+
+    // Dash visual
+    this.createDashEffect();
+
+    // Screen shake
+    this.cameras.main.shake(100, 0.005);
+
+    // Pounce animation - rotate cat forward
+    this.tweens.add({
+      targets: this.cat,
+      angle: 15,
+      duration: 100,
+      yoyo: false,
+    });
+  }
+
+  private handlePounce(): void {
+    if (this.gameOver) return;
+
+    const onGround = this.catBody.blocked.down || this.catBody.touching.down;
+    if (onGround || this.isPouncing) return; // Must be in air
+
+    this.startGame();
+
+    this.isPouncing = true;
+    this.catBody.setVelocityY(POUNCE_VELOCITY);
+    this.catBody.setVelocityX(0);
+
+    // Rotate cat downward
+    this.tweens.add({
+      targets: this.cat,
+      angle: 45,
+      duration: 100,
+    });
+
+    // Cyan aura
+    const aura = this.add.circle(this.cat.x, this.cat.y, 30, COLORS.neonCyan);
+    aura.setAlpha(0.4);
+    this.tweens.add({
+      targets: aura,
+      scale: 2,
+      alpha: 0,
+      duration: 300,
+      onComplete: () => aura.destroy(),
+    });
+  }
+
+  private onBuildingCollision(building: Phaser.GameObjects.Rectangle): void {
+    const catX = this.cat.x;
+    const catY = this.cat.y;
+    const catHalfWidth = 20;
+    const catBottom = catY + 20;
+    const catRight = catX + catHalfWidth;
+    const catLeft = catX - catHalfWidth;
+
+    const buildingLeft = building.x - building.width / 2;
+    const buildingRight = building.x + building.width / 2;
+    const buildingTop = building.y - building.height / 2;
+
+    // Check if landing on top
+    if (this.catBody.blocked.down || this.catBody.touching.down) {
+      this.onLand();
+      return;
+    }
+
+    // Pounce land
+    if (this.isPouncing && this.cat.y < buildingTop + 20) {
+      this.onPounceLand();
+      return;
+    }
+
+    // Wall slide detection (cat hits side of building while falling)
+    if (this.catBody.velocity.y > 0 && !this.catBody.blocked.down) {
+      // Check if hitting left wall of building (cat's right side touches building's left)
+      if (
+        catRight >= buildingLeft - 5 &&
+        catRight <= buildingLeft + 15 &&
+        catBottom > buildingTop + 10
+      ) {
+        this.startWallSlide('right');
+      }
+      // Check if hitting right wall (less common in runner, but possible)
+      else if (
+        catLeft <= buildingRight + 5 &&
+        catLeft >= buildingRight - 15 &&
+        catBottom > buildingTop + 10
+      ) {
+        this.startWallSlide('left');
+      }
+    }
+  }
+
+  private startWallSlide(side: 'left' | 'right'): void {
+    if (this.isWallSliding) return;
+
+    this.isWallSliding = true;
+    this.wallSlideSide = side;
+    this.catBody.setVelocityY(WALL_SLIDE_VELOCITY);
+    this.canDoubleJump = true; // Can double jump after wall slide
+
+    // Visual: tilt cat toward wall
+    this.cat.setAngle(side === 'right' ? -10 : 10);
+
+    // Spark particles
+    this.createWallSlideParticles();
+  }
+
+  private onLand(): void {
+    // Reset rotation
+    this.cat.setAngle(0);
+
+    // Reset abilities
+    this.canDoubleJump = true;
+    this.canDash = true;
+    this.isWallSliding = false;
+    this.wallSlideSide = null;
+    this.isPouncing = false;
+  }
+
+  private onPounceLand(): void {
+    this.isPouncing = false;
+    this.cat.setAngle(0);
+
+    // Screen shake
+    this.cameras.main.shake(150, 0.015);
+
+    // Impact effect
+    const impact = this.add.circle(this.cat.x, this.cat.y + 20, 20, COLORS.neonCyan);
+    impact.setAlpha(0.6);
+    this.tweens.add({
+      targets: impact,
+      scaleX: 3,
+      scaleY: 0.5,
+      alpha: 0,
+      duration: 200,
+      onComplete: () => impact.destroy(),
+    });
+
+    this.score += 5;
+    this.scoreText.setText(`SCORE: ${this.score}`);
+  }
+
+  private onDroneContact(drone: Phaser.GameObjects.Container): void {
+    // If pouncing, destroy drone and bounce
+    if (this.isPouncing) {
+      this.destroyDrone(drone);
+      this.catBody.setVelocityY(POUNCE_BOUNCE);
+      this.isPouncing = false;
+      this.cat.setAngle(0);
+
+      // Style bonus
+      this.score += 25;
+      this.scoreText.setText(`SCORE: ${this.score}`);
+
+      const pop = this.add
+        .text(drone.x, drone.y, '+25 POUNCE!', {
+          fontFamily: 'monospace',
+          fontSize: '16px',
+          color: '#ff2a6d',
+        })
+        .setOrigin(0.5);
       this.tweens.add({
-        targets: [this.thrusterFireL, this.thrusterFireR],
+        targets: pop,
+        y: drone.y - 40,
         alpha: 0,
-        duration: 350,
-        ease: 'Quad.easeOut',
+        duration: 500,
+        onComplete: () => pop.destroy(),
       });
-      // Thruster housing flash to cyan
-      this.thrusterL.setFillStyle(COLORS.catThruster);
-      this.thrusterR.setFillStyle(COLORS.catThruster);
-      this.tweens.add({
-        targets: this.thrusterL,
-        duration: 350,
-        onComplete: () => {
-          if (this.thrusterL?.active) this.thrusterL.setFillStyle(COLORS.catGear);
-        },
-      });
-      this.tweens.add({
-        targets: this.thrusterR,
-        duration: 350,
-        onComplete: () => {
-          if (this.thrusterR?.active) this.thrusterR.setFillStyle(COLORS.catGear);
-        },
-      });
-
-      // Trail particles
-      this.createTrail();
+      return;
     }
+
+    // If dashing, phase through (invincible)
+    if (this.isDashing) {
+      // Near-miss style bonus
+      this.score += 5;
+      return;
+    }
+
+    // Otherwise, death
+    this.onHitDrone();
+  }
+
+  private destroyDrone(drone: Phaser.GameObjects.Container): void {
+    // Explosion effect
+    this.cameras.main.flash(100, 255, 42, 109);
+
+    for (let i = 0; i < 8; i++) {
+      const spark = this.add.circle(
+        drone.x + Phaser.Math.Between(-20, 20),
+        drone.y + Phaser.Math.Between(-20, 20),
+        Phaser.Math.Between(3, 6),
+        COLORS.neonPink
+      );
+      this.tweens.add({
+        targets: spark,
+        x: spark.x + Phaser.Math.Between(-50, 50),
+        y: spark.y + Phaser.Math.Between(-50, 50),
+        alpha: 0,
+        scale: 0,
+        duration: 300,
+        onComplete: () => spark.destroy(),
+      });
+    }
+
+    drone.destroy();
+  }
+
+  private createJumpEffect(): void {
+    // Thruster glow burst
+    this.thrusterFireL.setAlpha(0.9);
+    this.thrusterFireR.setAlpha(0.9);
+    this.tweens.add({
+      targets: [this.thrusterFireL, this.thrusterFireR],
+      alpha: 0,
+      duration: 350,
+      ease: 'Quad.easeOut',
+    });
+
+    // Thruster housing flash to cyan
+    this.thrusterL.setFillStyle(COLORS.catThruster);
+    this.thrusterR.setFillStyle(COLORS.catThruster);
+    this.tweens.add({
+      targets: this.thrusterL,
+      duration: 350,
+      onComplete: () => {
+        if (this.thrusterL?.active) this.thrusterL.setFillStyle(COLORS.catGear);
+      },
+    });
+    this.tweens.add({
+      targets: this.thrusterR,
+      duration: 350,
+      onComplete: () => {
+        if (this.thrusterR?.active) this.thrusterR.setFillStyle(COLORS.catGear);
+      },
+    });
+
+    // Pounce animation - rotate cat up
+    this.tweens.add({
+      targets: this.cat,
+      angle: -15,
+      duration: 100,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+    });
+
+    this.createTrail();
+  }
+
+  private createDoubleJumpEffect(): void {
+    // Extra thruster burst
+    this.thrusterFireL.setAlpha(1);
+    this.thrusterFireR.setAlpha(1);
+    this.tweens.add({
+      targets: [this.thrusterFireL, this.thrusterFireR],
+      alpha: 0,
+      scaleY: 2,
+      duration: 400,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        if (this.thrusterFireL?.active) this.thrusterFireL.setScale(1);
+        if (this.thrusterFireR?.active) this.thrusterFireR.setScale(1);
+      },
+    });
+
+    // Ring effect
+    const ring = this.add.circle(this.cat.x, this.cat.y, 15, COLORS.neonCyan);
+    ring.setAlpha(0.7);
+    ring.setFillStyle(undefined as unknown as number);
+    ring.setStrokeStyle(3, COLORS.neonCyan);
+    this.tweens.add({
+      targets: ring,
+      scale: 3,
+      alpha: 0,
+      duration: 300,
+      onComplete: () => ring.destroy(),
+    });
+
+    // Rotate
+    this.tweens.add({
+      targets: this.cat,
+      angle: { from: 0, to: -360 },
+      duration: 300,
+      ease: 'Linear',
+    });
+  }
+
+  private createDashEffect(): void {
+    // Speed lines
+    for (let i = 0; i < 5; i++) {
+      const line = this.add.rectangle(
+        this.cat.x - 30 - i * 20,
+        this.cat.y + Phaser.Math.Between(-15, 15),
+        40,
+        2,
+        COLORS.neonCyan
+      );
+      line.setAlpha(0.8 - i * 0.15);
+      this.tweens.add({
+        targets: line,
+        x: line.x - 100,
+        alpha: 0,
+        duration: 200,
+        onComplete: () => line.destroy(),
+      });
+    }
+
+    // Thruster overdrive
+    this.thrusterFireL.setAlpha(1);
+    this.thrusterFireR.setAlpha(1);
+    this.thrusterFireL.setScale(1.5, 2);
+    this.thrusterFireR.setScale(1.5, 2);
+  }
+
+  private createWallSlideParticles(): void {
+    const sparkInterval = this.time.addEvent({
+      delay: 100,
+      callback: () => {
+        if (!this.isWallSliding) {
+          sparkInterval.remove();
+          return;
+        }
+        const spark = this.add.circle(
+          this.cat.x + (this.wallSlideSide === 'right' ? 25 : -25),
+          this.cat.y + Phaser.Math.Between(-10, 10),
+          2,
+          COLORS.neonPink
+        );
+        this.tweens.add({
+          targets: spark,
+          y: spark.y + 30,
+          alpha: 0,
+          duration: 200,
+          onComplete: () => spark.destroy(),
+        });
+      },
+      loop: true,
+    });
   }
 
   private createTrail(): void {
@@ -395,11 +775,6 @@ export class RunnerScene extends Phaser.Scene {
         onComplete: () => particle.destroy(),
       });
     }
-  }
-
-  private onLand(): void {
-    // Reset rotation
-    this.cat.setAngle(0);
   }
 
   private onHitDrone(): void {
@@ -489,6 +864,38 @@ export class RunnerScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (!this.started || this.gameOver) return;
+
+    // === Movement Physics ===
+
+    // Handle dash end
+    if (this.isDashing && this.time.now >= this.dashEndTime) {
+      this.isDashing = false;
+      this.catBody.setAllowGravity(true);
+      this.catBody.setVelocityX(0);
+      this.cat.setAngle(0);
+      // Reset thruster visuals
+      this.thrusterFireL.setAlpha(0);
+      this.thrusterFireR.setAlpha(0);
+      this.thrusterFireL.setScale(1);
+      this.thrusterFireR.setScale(1);
+    }
+
+    // Wall slide physics - slow fall
+    if (this.isWallSliding) {
+      this.catBody.setVelocityY(WALL_SLIDE_VELOCITY);
+      // Stop wall slide if landed
+      if (this.catBody.blocked.down) {
+        this.isWallSliding = false;
+        this.wallSlideSide = null;
+        this.onLand();
+      }
+    }
+
+    // Keep cat at fixed X position (runner style) unless dashing
+    if (!this.isDashing) {
+      this.cat.x = CAT_X;
+      this.catBody.setVelocityX(0);
+    }
 
     // Dynamic scroll speed: starts at 250, +0.5 per score point, capped at 500
     const currentSpeed = Math.min(
