@@ -3,11 +3,15 @@ console.log('[ROBOCAT] main.ts loading...');
 
 import Phaser from 'phaser';
 import { phaserConfig } from './config';
+import { RunnerScene } from './scenes/RunnerScene';
 
 console.log('[ROBOCAT] Imports done, starting Phaser...');
 
 try {
-  const game = new Phaser.Game(phaserConfig);
+  const game = new Phaser.Game({
+    ...phaserConfig,
+    scene: [RunnerScene],
+  });
 
   // Remove loading screen once Phaser is ready
   game.events.once('ready', () => {

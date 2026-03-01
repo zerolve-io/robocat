@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
-import { RunnerScene } from './scenes/RunnerScene';
 
 export const GAME_WIDTH = 800;
 export const GAME_HEIGHT = 600;
 
+/**
+ * Base Phaser config WITHOUT scene — scene is added in main.ts
+ * to avoid circular dependency (RunnerScene imports GAME_WIDTH/HEIGHT from here).
+ */
 export const phaserConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   width: GAME_WIDTH,
@@ -20,7 +23,7 @@ export const phaserConfig: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
-  scene: [RunnerScene],
+  scene: [],
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
