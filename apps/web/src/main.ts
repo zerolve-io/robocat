@@ -1,7 +1,11 @@
+/* eslint-disable no-undef */
+console.log('[ROBOCAT] main.ts loading...');
+
 import Phaser from 'phaser';
 import { phaserConfig } from './config';
 
-/* eslint-disable no-undef */
+console.log('[ROBOCAT] Imports done, starting Phaser...');
+
 try {
   const game = new Phaser.Game(phaserConfig);
 
