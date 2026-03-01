@@ -6,9 +6,9 @@ import {
   GRID_ROWS,
   TileType,
 } from '../generation/CityGenerator';
-import { hashSeed } from '@robocat/shared';
+import { hashSeed, mulberry32 } from '@robocat/shared';
 import { RoboCat } from '../entities/RoboCat';
-import { Drone } from '../entities/Drone';
+import { Drone, DroneType, AlertState } from '../entities/Drone';
 import { AttentionSystem } from '../systems/AttentionSystem';
 import { PurrSystem } from '../systems/PurrSystem';
 import { HackMinigame } from '../systems/HackMinigame';
@@ -24,6 +24,9 @@ import {
   HUD_OBJECTIVES_KEY,
   HUD_SEED_KEY,
   HUD_INTERACTION_KEY,
+  HUD_THREAT_KEY,
+  HUD_ESCAPE_TIMER_KEY,
+  HUD_DRONE_COUNT_KEY,
 } from './HUDScene';
 
 const WORLD_WIDTH = GRID_COLS * TILE_SIZE;
@@ -65,13 +68,17 @@ void HUD_ATTENTION_KEY;
 void HUD_PURR_KEY;
 void HUD_SCORE_KEY;
 void HUD_POUNCE_COOLDOWN_KEY;
+void HUD_THREAT_KEY;
+void HUD_ESCAPE_TIMER_KEY;
+void HUD_DRONE_COUNT_KEY;
 
 export class PatrolScene extends Phaser.Scene {
   private tileGrid!: TileType[][];
   private buildingGroup!: Phaser.Physics.Arcade.StaticGroup;
   private cityMood: import('../generation/CityGenerator').CityMood = 'clear';
   private roboCat!: RoboCat;
-  private drone!: Drone;
+  /** All drones for this patrol */
+  private drones: Drone[] = [];
   private attentionSystem!: AttentionSystem;
   private purrSystem!: PurrSystem;
   private hackMinigame!: HackMinigame;
@@ -100,6 +107,23 @@ export class PatrolScene extends Phaser.Scene {
   private lastInteraction = '';
   private keyEnter!: Phaser.Input.Keyboard.Key;
 
+  // ── Drone communication state ──────────────────────────────────────────
+  private pendingAlerts: Array<{
+    sourceIndex: number;
+    delay: number;
+    sourceX: number;
+    sourceY: number;
+  }> = [];
+
+  // ── Sound events ─────────────────────────────────────────────────────
+  private soundEvents: Array<{ x: number; y: number; radius: number }> = [];
+  private soundGfx!: Phaser.GameObjects.Graphics;
+  private soundEventTimer = 0;
+
+  // ── Escape timer ──────────────────────────────────────────────────────
+  private chaseEscapeTimer = 0;
+  private readonly CHASE_ESCAPE_MAX = 10000; // 10s
+
   constructor() {
     super({ key: 'PatrolScene' });
   }
@@ -116,6 +140,10 @@ export class PatrolScene extends Phaser.Scene {
     this.activeTileHack = null;
     this.overlayContainer = null;
     this.lastInteraction = '';
+    this.drones = [];
+    this.pendingAlerts = [];
+    this.soundEvents = [];
+    this.chaseEscapeTimer = 0;
   }
 
   create(): void {
@@ -138,7 +166,9 @@ export class PatrolScene extends Phaser.Scene {
     const spawnY = spawnTile.y * TILE_SIZE + TILE_SIZE / 2;
     this.roboCat = new RoboCat(this, spawnX, spawnY);
 
-    this.drone = new Drone(this, WORLD_WIDTH, WORLD_HEIGHT);
+    this._spawnDrones();
+
+    this.soundGfx = this.add.graphics().setDepth(6);
 
     this.cameras.main.startFollow(this.roboCat.sprite, true, 0.1, 0.1);
     this.physics.add.collider(this.roboCat.sprite, this.buildingGroup);
@@ -176,16 +206,6 @@ export class PatrolScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     this.roboCat.update(delta);
-    this.drone.update(delta);
-    this.attentionSystem.update(this.roboCat.sprite, this.drone, delta);
-    this.purrSystem.update(
-      this.roboCat.x,
-      this.roboCat.y,
-      this.roboCat.spaceDown,
-      [this.drone],
-      delta,
-      this.roboCat.sprite
-    );
 
     if (this.phase === 'briefing' || this.phase === 'debrief') {
       if (Phaser.Input.Keyboard.JustDown(this.keyEnter)) {
@@ -195,11 +215,40 @@ export class PatrolScene extends Phaser.Scene {
           this.startNextPatrol();
         }
       }
+      // Still update drone visuals during briefing (but not AI)
+      for (const drone of this.drones) {
+        drone.update(delta, this.roboCat.x, this.roboCat.y, false, false, false);
+      }
       return;
     }
 
     this.patrolTimer += delta;
     this.emitTimer();
+
+    // ── Sound detection ─────────────────────────────────────────────────
+    this._updateSoundGeneration(delta);
+
+    // ── Drone AI update ─────────────────────────────────────────────────
+    this._updateDrones(delta);
+
+    // ── Drone communication ──────────────────────────────────────────────
+    this._processPendingAlerts(delta);
+
+    // ── HUD: threat, escape, drone count ────────────────────────────────
+    this._emitDroneHUD(delta);
+
+    // ── Purr system ──────────────────────────────────────────────────────
+    this.purrSystem.update(
+      this.roboCat.x,
+      this.roboCat.y,
+      this.roboCat.spaceDown,
+      this.drones,
+      delta,
+      this.roboCat.sprite
+    );
+
+    // ── AttentionSystem (legacy bar) ─────────────────────────────────────
+    this.attentionSystem.updateMulti(this.roboCat.sprite, this.drones, delta);
 
     const { completedId, interaction } = this.objectiveSystem.update(
       this.roboCat.x,
@@ -219,6 +268,344 @@ export class PatrolScene extends Phaser.Scene {
     this.updateNeonFlash(delta);
     this.updateScatteredScraps();
     this.updateCrateInteraction(interaction);
+  }
+
+  // ── Drone update helpers ──────────────────────────────────────────────────
+
+  private _updateDrones(delta: number): void {
+    const catX = this.roboCat.x;
+    const catY = this.roboCat.y;
+
+    for (let i = 0; i < this.drones.length; i++) {
+      const drone = this.drones[i];
+
+      // Determine if purr affects this drone
+      const dx = drone.x - catX;
+      const dy = drone.y - catY;
+      const distToCat = Math.sqrt(dx * dx + dy * dy);
+      const purrRadius = 96; // matches PurrSystem constant
+      const purrAffected = this.purrSystem.isPurring && distToCat <= purrRadius;
+
+      const inCone = drone.isInVisionCone(catX, catY);
+      const inCenter = drone.isInConeCentre(catX, catY);
+
+      const justStartedChasing = drone.update(delta, catX, catY, inCone, inCenter, purrAffected);
+
+      // When a drone starts chasing, queue communication to nearby drones
+      if (justStartedChasing) {
+        drone.triggerPing();
+        this.pendingAlerts.push({
+          sourceIndex: i,
+          delay: 1000, // 1s communication delay
+          sourceX: drone.x,
+          sourceY: drone.y,
+        });
+        // Wake hunters
+        for (const other of this.drones) {
+          if (other !== drone && other.droneType === 'hunter' && other.isDormant) {
+            const hx = other.x - drone.x;
+            const hy = other.y - drone.y;
+            if (Math.sqrt(hx * hx + hy * hy) <= 10 * TILE_SIZE) {
+              this.time.delayedCall(1000, () => {
+                other.wakeUp();
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private _processPendingAlerts(delta: number): void {
+    for (let i = this.pendingAlerts.length - 1; i >= 0; i--) {
+      const alert = this.pendingAlerts[i];
+      alert.delay -= delta;
+      if (alert.delay <= 0) {
+        // Apply alert to nearby drones
+        for (let j = 0; j < this.drones.length; j++) {
+          if (j === alert.sourceIndex) continue;
+          const other = this.drones[j];
+          const hx = other.x - alert.sourceX;
+          const hy = other.y - alert.sourceY;
+          if (Math.sqrt(hx * hx + hy * hy) <= 10 * TILE_SIZE) {
+            other.receiveAlert(alert.sourceX, alert.sourceY);
+          }
+        }
+        this.pendingAlerts.splice(i, 1);
+      }
+    }
+  }
+
+  private _emitDroneHUD(delta: number): void {
+    const highestAlert = AttentionSystem.getHighestAlert(this.drones);
+    this.game.events.emit(HUD_THREAT_KEY, highestAlert);
+
+    // Aware drone count
+    const awarenessStates = new Set([
+      AlertState.SUSPICIOUS,
+      AlertState.ALARMED,
+      AlertState.CHASING,
+    ]);
+    const awareDrones = this.drones.filter(
+      (d) => !d.isDormant && awarenessStates.has(d.alertState)
+    ).length;
+    const totalActive = this.drones.filter((d) => !d.isDormant).length;
+    this.game.events.emit(HUD_DRONE_COUNT_KEY, awareDrones, totalActive);
+
+    // Escape timer
+    if (highestAlert === AlertState.CHASING) {
+      this.chaseEscapeTimer += delta;
+      const ratio = Math.min(this.chaseEscapeTimer / this.CHASE_ESCAPE_MAX, 1);
+      this.game.events.emit(HUD_ESCAPE_TIMER_KEY, ratio);
+    } else {
+      if (this.chaseEscapeTimer > 0) {
+        this.chaseEscapeTimer = Math.max(0, this.chaseEscapeTimer - delta);
+      }
+      if (this.chaseEscapeTimer === 0) {
+        this.game.events.emit(HUD_ESCAPE_TIMER_KEY, null);
+      }
+    }
+  }
+
+  // ── Sound generation ──────────────────────────────────────────────────────
+
+  private _updateSoundGeneration(delta: number): void {
+    this.soundEventTimer = Math.max(0, this.soundEventTimer - delta);
+
+    // Running with shift (not wall-running) creates sound
+    const shiftKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
+    const isShiftRunning = (shiftKey?.isDown ?? false) && !this.roboCat.isWallRunning;
+    const purrSuppresses = this.purrSystem.isPurring;
+
+    if (isShiftRunning && !purrSuppresses && this.soundEventTimer <= 0) {
+      this.soundEventTimer = 300; // throttle sound events
+      const baseRadius = 5 * TILE_SIZE;
+      const moodMod = this.drones[0]?.soundRangeMod ?? 1;
+      this._emitSound(this.roboCat.x, this.roboCat.y, baseRadius * moodMod);
+    }
+
+    // Clean expired sound events
+    this.soundEvents = this.soundEvents.filter((s) => s.radius > 0);
+    this.soundGfx.clear();
+  }
+
+  private _emitSound(x: number, y: number, radius: number): void {
+    this.soundEvents.push({ x, y, radius });
+
+    // Trigger nearby unaware/suspicious drones
+    for (const drone of this.drones) {
+      if (drone.isDormant) continue;
+      if (drone.alertState !== AlertState.UNAWARE && drone.alertState !== AlertState.SUSPICIOUS)
+        continue;
+      const dx = drone.x - x;
+      const dy = drone.y - y;
+      if (Math.sqrt(dx * dx + dy * dy) <= radius) {
+        drone.receiveAlert(x, y);
+      }
+    }
+
+    // Fade ring visual
+    const gfx = this.add.graphics().setDepth(6);
+    gfx.lineStyle(1, 0xffcc00, 0.4);
+    gfx.strokeCircle(x, y, radius);
+    this.time.delayedCall(400, () => {
+      if (gfx.active) gfx.destroy();
+    });
+  }
+
+  // ── Drone spawning ────────────────────────────────────────────────────────
+
+  private _spawnDrones(): void {
+    const seedNum =
+      typeof this.patrolSeed === 'string'
+        ? hashSeed(this.patrolSeed + '_drones')
+        : (this.patrolSeed as number) + 0xd70e;
+    const rng = mulberry32(seedNum >>> 0);
+
+    // Scale with patrol number: base 7, +1 per 3 patrols
+    const targetCount = 7 + Math.floor((this.patrolNumber - 1) / 3);
+
+    // Collect candidate positions by block type
+    const dataCenterCells: { col: number; row: number }[] = [];
+    const kioskCells: { col: number; row: number }[] = [];
+    const pathCells: { col: number; row: number }[] = [];
+    const droneLaneCells: { col: number; row: number }[] = [];
+    const intersectionCells: { col: number; row: number }[] = [];
+
+    for (let row = 2; row < GRID_ROWS - 2; row++) {
+      for (let col = 2; col < GRID_COLS - 2; col++) {
+        const t = this.tileGrid[row][col];
+        if (t === TileType.BUILDING) continue;
+        if (t === TileType.KIOSK) kioskCells.push({ col, row });
+        else if (t === TileType.TERMINAL) dataCenterCells.push({ col, row });
+        else if (t === TileType.PATH) {
+          pathCells.push({ col, row });
+          // Intersection: has path tiles in ≥3 cardinal directions
+          const adj = this._countPathNeighbours(col, row);
+          if (adj >= 3) intersectionCells.push({ col, row });
+        } else if (t === TileType.VENT) {
+          droneLaneCells.push({ col, row });
+        }
+      }
+    }
+
+    const shuffle = <T>(arr: T[]): T[] => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    };
+
+    shuffle(dataCenterCells);
+    shuffle(kioskCells);
+    shuffle(pathCells);
+    shuffle(droneLaneCells);
+    shuffle(intersectionCells);
+
+    const placedCells: { col: number; row: number }[] = [];
+    const MIN_SEP = 5; // min tiles between drones
+
+    const tryPlace = (
+      type: DroneType,
+      candidates: { col: number; row: number }[],
+      count: number,
+      waypointBuilder: (col: number, row: number) => { x: number; y: number }[]
+    ) => {
+      let placed_count = 0;
+      for (const cand of candidates) {
+        if (placed_count >= count) break;
+        let tooClose = false;
+        for (const p of placedCells) {
+          if (Math.abs(p.col - cand.col) < MIN_SEP && Math.abs(p.row - cand.row) < MIN_SEP) {
+            tooClose = true;
+            break;
+          }
+        }
+        if (tooClose) continue;
+
+        const wx = cand.col * TILE_SIZE + TILE_SIZE / 2;
+        const wy = cand.row * TILE_SIZE + TILE_SIZE / 2;
+        const waypoints = waypointBuilder(cand.col, cand.row);
+        const facing = rng() * Math.PI * 2;
+        const drone = new Drone(
+          this,
+          type,
+          wx,
+          wy,
+          facing,
+          waypoints,
+          seedNum,
+          this.cityMood,
+          this.drones.length
+        );
+        this.drones.push(drone);
+        placedCells.push(cand);
+        placed_count++;
+      }
+    };
+
+    // Sentries: near terminals/kiosks — stationary
+    const sentryCount = 2 + Math.floor(rng() * 2); // 2-3
+    const sentryPool = [...dataCenterCells.slice(0, 4), ...kioskCells.slice(0, 4)];
+    tryPlace('sentry', sentryPool, sentryCount, (col, row) => [
+      { x: col * TILE_SIZE + TILE_SIZE / 2, y: row * TILE_SIZE + TILE_SIZE / 2 },
+    ]);
+
+    // Patrol drones: along path tiles with waypoints
+    const patrolCount = 3 + Math.floor(rng() * 2); // 3-4
+    tryPlace('patrol', pathCells, patrolCount, (col, row) => {
+      return this._buildPatrolWaypoints(col, row, 2 + Math.floor(rng() * 3), rng);
+    });
+
+    // Hunters: dormant in vent/drone_lane areas
+    const hunterCount = 1 + Math.floor(rng() * 2); // 1-2
+    const hunterPool = [...droneLaneCells, ...pathCells.slice(-10)];
+    tryPlace('hunter', hunterPool, hunterCount, (col, row) => [
+      { x: col * TILE_SIZE + TILE_SIZE / 2, y: row * TILE_SIZE + TILE_SIZE / 2 },
+    ]);
+
+    // Scanners: at major intersections
+    const scannerCount = 1 + Math.floor(rng() * 2); // 1-2
+    tryPlace('scanner', intersectionCells, scannerCount, (col, row) => [
+      { x: col * TILE_SIZE + TILE_SIZE / 2, y: row * TILE_SIZE + TILE_SIZE / 2 },
+    ]);
+
+    // Fill remaining quota with extra patrol drones
+    const remaining = targetCount - this.drones.length;
+    if (remaining > 0) {
+      tryPlace('patrol', pathCells.slice(patrolCount * 3), remaining, (col, row) => {
+        return this._buildPatrolWaypoints(col, row, 2, rng);
+      });
+    }
+  }
+
+  private _countPathNeighbours(col: number, row: number): number {
+    let count = 0;
+    for (const [dc, dr] of [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ] as [number, number][]) {
+      const nc = col + dc;
+      const nr = row + dr;
+      if (nc >= 0 && nc < GRID_COLS && nr >= 0 && nr < GRID_ROWS) {
+        const t = this.tileGrid[nr][nc];
+        if (
+          t === TileType.PATH ||
+          t === TileType.NEON ||
+          t === TileType.KIOSK ||
+          t === TileType.TERMINAL ||
+          t === TileType.VENT ||
+          t === TileType.PUDDLE
+        ) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  private _buildPatrolWaypoints(
+    startCol: number,
+    startRow: number,
+    count: number,
+    rng: () => number
+  ): { x: number; y: number }[] {
+    const waypoints: { x: number; y: number }[] = [];
+    let col = startCol;
+    let row = startRow;
+
+    for (let i = 0; i < count; i++) {
+      waypoints.push({ x: col * TILE_SIZE + TILE_SIZE / 2, y: row * TILE_SIZE + TILE_SIZE / 2 });
+      const dirs: [number, number][] = [
+        [-1, 0],
+        [1, 0],
+        [0, -1],
+        [0, 1],
+      ];
+      const dir = dirs[Math.floor(rng() * 4)];
+      const steps = 3 + Math.floor(rng() * 4);
+      for (let s = 0; s < steps; s++) {
+        const nc = col + dir[0];
+        const nr = row + dir[1];
+        if (
+          nc >= 1 &&
+          nc < GRID_COLS - 1 &&
+          nr >= 1 &&
+          nr < GRID_ROWS - 1 &&
+          this.tileGrid[nr][nc] !== TileType.BUILDING
+        ) {
+          col = nc;
+          row = nr;
+        } else {
+          break;
+        }
+      }
+    }
+
+    return waypoints;
   }
 
   // ── Briefing overlay ──────────────────────────────────────────────────────
@@ -289,6 +676,10 @@ export class PatrolScene extends Phaser.Scene {
       if (!s.collected) s.gfx.destroy();
     }
     this.crateGfx?.destroy();
+    for (const drone of this.drones) {
+      drone.destroy();
+    }
+    this.drones = [];
     this.scene.restart({
       patrolNumber: this.patrolNumber + 1,
       totalScraps: this.totalScraps,

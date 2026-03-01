@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import type { PatrolObjective } from '../systems/ObjectiveSystem';
+import { AlertState } from '../entities/Drone';
 
 export const HUD_ATTENTION_KEY = 'hud-attention';
 export const HUD_PURR_KEY = 'hud-purr';
@@ -10,6 +11,9 @@ export const HUD_TIMER_KEY = 'hud-timer';
 export const HUD_OBJECTIVES_KEY = 'hud-objectives';
 export const HUD_SEED_KEY = 'hud-seed';
 export const HUD_INTERACTION_KEY = 'hud-interaction';
+export const HUD_THREAT_KEY = 'hud-threat';
+export const HUD_ESCAPE_TIMER_KEY = 'hud-escape-timer';
+export const HUD_DRONE_COUNT_KEY = 'hud-drone-count';
 
 export class HUDScene extends Phaser.Scene {
   private attentionBarBg!: Phaser.GameObjects.Rectangle;
@@ -36,6 +40,14 @@ export class HUDScene extends Phaser.Scene {
 
   private hints!: Phaser.GameObjects.Text;
 
+  // ── Threat / drone indicators ──────────────────────────────────────────
+  private threatText!: Phaser.GameObjects.Text;
+  private droneCountText!: Phaser.GameObjects.Text;
+
+  private escapeBarBg!: Phaser.GameObjects.Rectangle;
+  private escapeBarFill!: Phaser.GameObjects.Rectangle;
+  private escapeLabel!: Phaser.GameObjects.Text;
+
   private readonly BAR_W = 200;
   private readonly BAR_H = 12;
   private readonly BAR_X = 16;
@@ -48,7 +60,7 @@ export class HUDScene extends Phaser.Scene {
     const W = this.scale.width;
     const H = this.scale.height;
 
-    // Top-left panel
+    // Top-left panel background
     this.add.rectangle(0, 0, 280, 72, 0x000000, 0.65).setOrigin(0, 0);
 
     // Attention bar
@@ -90,8 +102,7 @@ export class HUDScene extends Phaser.Scene {
     purrBorder.strokeRect(this.BAR_X, purrY + 2, this.BAR_W, this.BAR_H);
 
     // Pounce cooldown
-    this.pounceIcon = this.add.graphics();
-    this.pounceIcon.setDepth(100);
+    this.pounceIcon = this.add.graphics().setDepth(100);
     this.drawPounceIcon(1);
     const pounceX = this.BAR_X + this.BAR_W + 32;
     const pounceY = 22 + 18;
@@ -104,7 +115,7 @@ export class HUDScene extends Phaser.Scene {
       .text(W - 16, 16, 'SCORE: 0', { fontFamily: 'monospace', fontSize: '13px', color: '#00ffcc' })
       .setOrigin(1, 0);
 
-    // Scraps (top right, below score)
+    // Scraps (top right)
     this.add
       .rectangle(W - 90, 34, 88, 18, 0x000000, 0.6)
       .setOrigin(0, 0)
@@ -127,6 +138,52 @@ export class HUDScene extends Phaser.Scene {
       .text(W / 2, 4, '00:00', { fontFamily: 'monospace', fontSize: '15px', color: '#88ccff' })
       .setOrigin(0.5, 0)
       .setDepth(51);
+
+    // ── Threat level (top right, below scraps) ─────────────────────────
+    this.add
+      .rectangle(W - 140, 56, 136, 18, 0x000000, 0.6)
+      .setOrigin(0, 0)
+      .setDepth(50);
+    this.add
+      .text(W - 136, 61, 'THREAT:', { fontFamily: 'monospace', fontSize: '9px', color: '#556677' })
+      .setOrigin(0, 0)
+      .setDepth(51);
+    this.threatText = this.add
+      .text(W - 80, 61, 'NONE', { fontFamily: 'monospace', fontSize: '9px', color: '#00ff44' })
+      .setOrigin(0, 0)
+      .setDepth(51);
+
+    // ── Drone count (top right) ─────────────────────────────────────────
+    this.droneCountText = this.add
+      .text(W - 16, 78, 'DRONES: 0/0', {
+        fontFamily: 'monospace',
+        fontSize: '9px',
+        color: '#556677',
+      })
+      .setOrigin(1, 0)
+      .setDepth(51);
+
+    // ── Escape timer bar (center, above hint bar) ───────────────────────
+    const escapeY = H - 50;
+    this.escapeLabel = this.add
+      .text(W / 2, escapeY - 2, 'ESCAPE IN\u2026', {
+        fontFamily: 'monospace',
+        fontSize: '9px',
+        color: '#ff4444',
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(100)
+      .setVisible(false);
+    this.escapeBarBg = this.add
+      .rectangle(W / 2 - 60, escapeY, 120, 8, 0x331111, 0.8)
+      .setOrigin(0, 0)
+      .setDepth(100)
+      .setVisible(false);
+    this.escapeBarFill = this.add
+      .rectangle(W / 2 - 60, escapeY, 120, 8, 0xff2200, 0.9)
+      .setOrigin(0, 0)
+      .setDepth(101)
+      .setVisible(false);
 
     // Objective checklist (left side)
     const objY = 80;
@@ -155,16 +212,13 @@ export class HUDScene extends Phaser.Scene {
         W / 2,
         H - 4,
         'WASD Move  |  Q Pounce  |  Shift Wall-run  |  E Interact  |  Space Purr',
-        {
-          fontFamily: 'monospace',
-          fontSize: '9px',
-          color: '#556677',
-        }
+        { fontFamily: 'monospace', fontSize: '9px', color: '#556677' }
       )
       .setOrigin(0.5, 1)
       .setDepth(100);
+    void this.hints;
 
-    // Events
+    // ── Event bindings ─────────────────────────────────────────────────
     this.game.events.on(HUD_ATTENTION_KEY, (level: number) => {
       this.setAttention(level);
     });
@@ -172,28 +226,73 @@ export class HUDScene extends Phaser.Scene {
       this.setPurrEnergy(energy);
     });
     this.game.events.on(HUD_SCORE_KEY, (score: number) => {
-      this.scoreText.setText(`SCORE: ${score}`);
+      this.scoreText.setText('SCORE: ' + score);
     });
     this.game.events.on(HUD_POUNCE_COOLDOWN_KEY, (ratio: number) => {
       this.drawPounceIcon(1 - ratio);
     });
     this.game.events.on(HUD_SCRAPS_KEY, (scraps: number) => {
-      this.scrapsText.setText(`\u2B21 ${scraps} scraps`);
+      this.scrapsText.setText('\u2B21 ' + scraps + ' scraps');
     });
     this.game.events.on(HUD_TIMER_KEY, (seconds: number) => {
       const m = Math.floor(seconds / 60);
       const s = Math.floor(seconds % 60);
-      this.timerText.setText(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+      this.timerText.setText(String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'));
     });
     this.game.events.on(HUD_OBJECTIVES_KEY, (objectives: PatrolObjective[]) => {
       this.updateObjectiveChecklist(objectives);
     });
     this.game.events.on(HUD_SEED_KEY, (seed: number | string) => {
-      this.seedText.setText(`seed: ${seed}`);
+      this.seedText.setText('seed: ' + seed);
     });
     this.game.events.on(HUD_INTERACTION_KEY, (text: string) => {
       this.interactionText.setText(text ?? '');
     });
+    this.game.events.on(HUD_THREAT_KEY, (state: AlertState | null) => {
+      this._updateThreat(state);
+    });
+    this.game.events.on(HUD_ESCAPE_TIMER_KEY, (ratio: number | null) => {
+      this._updateEscapeTimer(ratio);
+    });
+    this.game.events.on(HUD_DRONE_COUNT_KEY, (aware: number, total: number) => {
+      this.droneCountText.setText('DRONES: ' + aware + '/' + total);
+      this.droneCountText.setColor(aware > 0 ? '#ff8800' : '#556677');
+    });
+  }
+
+  // ── Threat level ──────────────────────────────────────────────────────
+  private _updateThreat(state: AlertState | null): void {
+    const labels: Record<AlertState, string> = {
+      [AlertState.UNAWARE]: 'NONE',
+      [AlertState.SUSPICIOUS]: 'LOW',
+      [AlertState.ALARMED]: 'HIGH',
+      [AlertState.CHASING]: 'PURSUIT',
+    };
+    const colors: Record<AlertState, string> = {
+      [AlertState.UNAWARE]: '#00ff44',
+      [AlertState.SUSPICIOUS]: '#ffee00',
+      [AlertState.ALARMED]: '#ff8800',
+      [AlertState.CHASING]: '#ff1111',
+    };
+    if (!state) {
+      this.threatText.setText('NONE').setColor('#00ff44');
+    } else {
+      this.threatText.setText(labels[state]).setColor(colors[state]);
+    }
+  }
+
+  // ── Escape timer ──────────────────────────────────────────────────────
+  private _updateEscapeTimer(ratio: number | null): void {
+    const visible = ratio !== null && ratio > 0;
+    this.escapeLabel.setVisible(visible);
+    this.escapeBarBg.setVisible(visible);
+    this.escapeBarFill.setVisible(visible);
+    if (visible && ratio !== null) {
+      this.escapeBarFill.width = Math.max(0, Math.floor(120 * ratio));
+      const r = Math.round(0xff * (1 - ratio));
+      const g = Math.round(0xff * ratio);
+      this.escapeBarFill.fillColor = (r << 16) | (g << 8) | 0;
+    }
   }
 
   private updateObjectiveChecklist(objectives: PatrolObjective[]): void {
@@ -220,7 +319,7 @@ export class HUDScene extends Phaser.Scene {
       const color = obj.completed ? '#00ff88' : '#ccddee';
       const title = obj.title.length > 28 ? obj.title.slice(0, 27) + '\u2026' : obj.title;
       const text = this.add
-        .text(this.BAR_X, 16 + i * lineH, `${icon} ${title}`, {
+        .text(this.BAR_X, 16 + i * lineH, icon + ' ' + title, {
           fontFamily: 'monospace',
           fontSize: '9px',
           color,
@@ -245,8 +344,14 @@ export class HUDScene extends Phaser.Scene {
     } else {
       this.pounceIcon.beginPath();
       const startAngle = -Math.PI / 2;
-      const endAngle = startAngle + readyRatio * Math.PI * 2;
-      this.pounceIcon.arc(pounceX, pounceY, radius, startAngle, endAngle, false);
+      this.pounceIcon.arc(
+        pounceX,
+        pounceY,
+        radius,
+        startAngle,
+        startAngle + readyRatio * Math.PI * 2,
+        false
+      );
       this.pounceIcon.strokePath();
     }
     this.pounceIcon.fillStyle(readyRatio >= 1 ? 0x00ff88 : 0x445544, 1);
