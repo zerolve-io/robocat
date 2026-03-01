@@ -21,9 +21,50 @@
       canvas {
         display: block;
       }
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #00ffc8;
+        font-family: monospace;
+        font-size: 1.2rem;
+        text-align: center;
+        letter-spacing: 0.1em;
+      }
+      #loading .bar {
+        margin-top: 1rem;
+        width: 200px;
+        height: 4px;
+        background: #1a1a2e;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      #loading .bar::after {
+        content: '';
+        display: block;
+        width: 40%;
+        height: 100%;
+        background: #00ffc8;
+        animation: pulse 1s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: translateX(-100%);
+        }
+        50% {
+          transform: translateX(350%);
+        }
+      }
     </style>
   </head>
   <body>
+    <div id="loading">
+      ROBOCAT<br />
+      <span style="font-size: 0.7rem; color: #666">INITIALIZING PATROL SYSTEMS</span>
+      <div class="bar"></div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
