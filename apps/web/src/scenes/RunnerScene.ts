@@ -62,6 +62,13 @@ export class RunnerScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Reset all state on restart (scene.restart() reuses the same instance)
+    this.score = 0;
+    this.gameOver = false;
+    this.started = false;
+    this.lastBuildingX = 0;
+    this.buildingPool = [];
+
     // Load high score
     this.highScore = parseInt(localStorage.getItem('robocat_highscore') || '0', 10);
 
