@@ -72,6 +72,10 @@ export class RoboCat {
     }
   }
 
-  get x(): number { return this.sprite.x; }
-  get y(): number { return this.sprite.y; }
+  get x(): number {
+    return this.sprite.x;
+  }
+  get y(): number {
+    return this.sprite.y;
+  }
 }

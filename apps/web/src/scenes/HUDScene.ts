@@ -21,29 +21,23 @@ export class HUDScene extends Phaser.Scene {
     this.add.rectangle(0, 0, 800, 48, 0x000000, 0.6).setOrigin(0, 0);
 
     // Label
-    this.label = this.add.text(this.BAR_X, this.BAR_Y - 2, 'ATTENTION', {
-      fontFamily: 'monospace',
-      fontSize: '10px',
-      color: '#888888',
-    }).setOrigin(0, 1);
+    this.label = this.add
+      .text(this.BAR_X, this.BAR_Y - 2, 'ATTENTION', {
+        fontFamily: 'monospace',
+        fontSize: '10px',
+        color: '#888888',
+      })
+      .setOrigin(0, 1);
 
     // Bar background
-    this.barBg = this.add.rectangle(
-      this.BAR_X,
-      this.BAR_Y + 4,
-      this.BAR_W,
-      this.BAR_H,
-      0x222244
-    ).setOrigin(0, 0);
+    this.barBg = this.add
+      .rectangle(this.BAR_X, this.BAR_Y + 4, this.BAR_W, this.BAR_H, 0x222244)
+      .setOrigin(0, 0);
 
     // Bar fill (cyan → red depending on level)
-    this.barFill = this.add.rectangle(
-      this.BAR_X,
-      this.BAR_Y + 4,
-      0,
-      this.BAR_H,
-      0x00ffff
-    ).setOrigin(0, 0);
+    this.barFill = this.add
+      .rectangle(this.BAR_X, this.BAR_Y + 4, 0, this.BAR_H, 0x00ffff)
+      .setOrigin(0, 0);
 
     // Border
     const border = this.add.graphics();

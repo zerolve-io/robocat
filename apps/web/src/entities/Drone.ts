@@ -41,8 +41,7 @@ export class Drone {
     this.drawVisionCone();
   }
 
-  update(delta: number): void {
-    const dt = delta / 1000;
+  update(_delta: number): void {
     const target = this.config.points[this.patrolIndex];
     const dx = target.x - this.sprite.x;
     const dy = target.y - this.sprite.y;
@@ -55,10 +54,7 @@ export class Drone {
     } else {
       const nx = dx / dist;
       const ny = dy / dist;
-      (this.sprite.body as Phaser.Physics.Arcade.Body).setVelocity(
-        nx * speed,
-        ny * speed
-      );
+      (this.sprite.body as Phaser.Physics.Arcade.Body).setVelocity(nx * speed, ny * speed);
       this.facingAngle = Math.atan2(ny, nx);
     }
 
@@ -110,7 +106,8 @@ export class Drone {
     // Arc
     this.visionCone.beginPath();
     this.visionCone.arc(
-      x, y,
+      x,
+      y,
       this.visionRange,
       this.facingAngle - halfAngle,
       this.facingAngle + halfAngle,
@@ -137,6 +134,10 @@ export class Drone {
     return Math.abs(diff) <= this.visionAngle / 2;
   }
 
-  get x(): number { return this.sprite.x; }
-  get y(): number { return this.sprite.y; }
+  get x(): number {
+    return this.sprite.x;
+  }
+  get y(): number {
+    return this.sprite.y;
+  }
 }

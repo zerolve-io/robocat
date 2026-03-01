@@ -1,0 +1,10 @@
+# Check for secrets with gitleaks before committing
+if command -v gitleaks &> /dev/null; then
+  gitleaks protect --staged --no-banner || {
+    echo "❌ Gitleaks detected potential secrets. Commit blocked."
+    exit 1
+  }
+fi
+
+# Run lint-staged (eslint + prettier on staged files)
+pnpm exec lint-staged

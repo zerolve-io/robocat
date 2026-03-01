@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Drone } from '../entities/Drone';
 import { HUD_ATTENTION_KEY } from '../scenes/HUDScene';
 
-const RISE_RATE = 0.6;  // units per second while in cone
+const RISE_RATE = 0.6; // units per second while in cone
 const FALL_RATE = 0.35; // units per second while hidden
 
 export class AttentionSystem {
@@ -13,11 +13,7 @@ export class AttentionSystem {
     this.scene = scene;
   }
 
-  update(
-    catSprite: Phaser.Physics.Arcade.Sprite,
-    drone: Drone,
-    delta: number
-  ): void {
+  update(catSprite: Phaser.Physics.Arcade.Sprite, drone: Drone, delta: number): void {
     const dt = delta / 1000;
     const inCone = drone.isInVisionCone(catSprite.x, catSprite.y);
 

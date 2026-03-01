@@ -89,11 +89,7 @@ export class CityGenerator {
     return grid;
   }
 
-  private canPlace(
-    grid: TileKind[][],
-    bx: number, by: number,
-    bw: number, bh: number
-  ): boolean {
+  private canPlace(grid: TileKind[][], bx: number, by: number, bw: number, bh: number): boolean {
     // Check if there's at least a 1-tile gap around the building
     for (let row = by - 1; row <= by + bh; row++) {
       for (let col = bx - 1; col <= bx + bw; col++) {
@@ -101,9 +97,7 @@ export class CityGenerator {
           return false;
         }
         // Don't place if adjacent tile is already a building (ensures gap)
-        if (
-          row < by || row >= by + bh || col < bx || col >= bx + bw
-        ) {
+        if (row < by || row >= by + bh || col < bx || col >= bx + bw) {
           // It's on the ring — if it's a building, skip
           if (grid[row][col] === TileKind.Building) return false;
         }
@@ -113,7 +107,12 @@ export class CityGenerator {
   }
 
   private hasAdjacentBuilding(grid: TileKind[][], col: number, row: number): boolean {
-    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    const dirs = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ];
     for (const [dc, dr] of dirs) {
       const nc = col + dc;
       const nr = row + dr;

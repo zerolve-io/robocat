@@ -1,11 +1,17 @@
 import Phaser from 'phaser';
-import { CityGenerator, TILE_SIZE, GRID_COLS, GRID_ROWS, TileKind } from '../generation/CityGenerator';
+import {
+  CityGenerator,
+  TILE_SIZE,
+  GRID_COLS,
+  GRID_ROWS,
+  TileKind,
+} from '../generation/CityGenerator';
 import { RoboCat } from '../entities/RoboCat';
 import { Drone } from '../entities/Drone';
 import { AttentionSystem } from '../systems/AttentionSystem';
 
-const WORLD_WIDTH = GRID_COLS * TILE_SIZE;   // 40 * 32 = 1280
-const WORLD_HEIGHT = GRID_ROWS * TILE_SIZE;  // 30 * 32 = 960
+const WORLD_WIDTH = GRID_COLS * TILE_SIZE; // 40 * 32 = 1280
+const WORLD_HEIGHT = GRID_ROWS * TILE_SIZE; // 30 * 32 = 960
 
 export class PatrolScene extends Phaser.Scene {
   private tileGrid!: TileKind[][];
@@ -55,11 +61,7 @@ export class PatrolScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     this.roboCat.update(delta);
     this.drone.update(delta);
-    this.attentionSystem.update(
-      this.roboCat.sprite,
-      this.drone,
-      delta
-    );
+    this.attentionSystem.update(this.roboCat.sprite, this.drone, delta);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -121,8 +123,10 @@ export class PatrolScene extends Phaser.Scene {
           const col = cx + dx;
           const row = cy + dy;
           if (
-            col >= 0 && col < GRID_COLS &&
-            row >= 0 && row < GRID_ROWS &&
+            col >= 0 &&
+            col < GRID_COLS &&
+            row >= 0 &&
+            row < GRID_ROWS &&
             this.tileGrid[row][col] !== TileKind.Building
           ) {
             return { x: col, y: row };
