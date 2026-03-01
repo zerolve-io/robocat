@@ -66,4 +66,18 @@ export default [
       },
     },
   },
+  // Test files — Node.js globals + browser globals for page.evaluate()
+  {
+    files: ['tests/**/*.mjs', 'tests/**/*.js'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        setTimeout: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        document: 'readonly', // Used inside page.evaluate()
+      },
+    },
+  },
 ];

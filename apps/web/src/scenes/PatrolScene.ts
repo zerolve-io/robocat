@@ -138,7 +138,9 @@ export class PatrolScene extends Phaser.Scene {
     const spawnY = spawnTile.y * TILE_SIZE + TILE_SIZE / 2;
     this.roboCat = new RoboCat(this, spawnX, spawnY);
 
-    this.drone = new Drone(this, WORLD_WIDTH, WORLD_HEIGHT);
+    this._spawnDrones();
+
+    this.soundGfx = this.add.graphics().setDepth(6);
 
     this.cameras.main.startFollow(this.roboCat.sprite, true, 0.1, 0.1);
     this.physics.add.collider(this.roboCat.sprite, this.buildingGroup);
@@ -172,53 +174,6 @@ export class PatrolScene extends Phaser.Scene {
     this.emitObjectives();
 
     this.time.delayedCall(100, () => this.showBriefing());
-  }
-
-  update(_time: number, delta: number): void {
-    this.roboCat.update(delta);
-    this.drone.update(delta);
-    this.attentionSystem.update(this.roboCat.sprite, this.drone, delta);
-    this.purrSystem.update(
-      this.roboCat.x,
-      this.roboCat.y,
-      this.roboCat.spaceDown,
-      [this.drone],
-      delta,
-      this.roboCat.sprite
-    );
-
-    if (this.phase === 'briefing' || this.phase === 'debrief') {
-      if (Phaser.Input.Keyboard.JustDown(this.keyEnter)) {
-        if (this.phase === 'briefing') {
-          this.startPatrol();
-        } else if (this.phase === 'debrief') {
-          this.startNextPatrol();
-        }
-      }
-      return;
-    }
-
-    this.patrolTimer += delta;
-    this.emitTimer();
-
-    const { completedId, interaction } = this.objectiveSystem.update(
-      this.roboCat.x,
-      this.roboCat.y,
-      this.roboCat.eJustDown,
-      this.roboCat.eIsDown,
-      delta
-    );
-
-    if (completedId) {
-      this.emitObjectives();
-    }
-
-    this.updateBillboardHackInteraction();
-    this.updateHackInteraction();
-    this.hackMinigame.update();
-    this.updateNeonFlash(delta);
-    this.updateScatteredScraps();
-    this.updateCrateInteraction(interaction);
   }
 
   // ── Briefing overlay ──────────────────────────────────────────────────────
