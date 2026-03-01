@@ -52,4 +52,18 @@ export default [
       },
     },
   },
+  // Web app — browser globals
+  {
+    files: ['apps/web/**/*.ts'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+        localStorage: 'readonly',
+        HTMLElement: 'readonly',
+        requestAnimationFrame: 'readonly',
+        cancelAnimationFrame: 'readonly',
+      },
+    },
+  },
 ];
