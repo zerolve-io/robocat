@@ -17,6 +17,9 @@ export class AttentionSystem {
     const dt = delta / 1000;
     const inCone = drone.isInVisionCone(catSprite.x, catSprite.y);
 
+    // Tell drone whether it's detecting
+    drone.setDetecting(inCone);
+
     if (inCone) {
       this.level = Math.min(1, this.level + RISE_RATE * dt);
     } else {
@@ -25,6 +28,11 @@ export class AttentionSystem {
 
     // Broadcast to HUD
     this.scene.game.events.emit(HUD_ATTENTION_KEY, this.level);
+  }
+
+  /** Instantly bump the attention level up by a given amount. */
+  bump(amount: number): void {
+    this.level = Math.min(1, this.level + amount);
   }
 
   get attentionLevel(): number {
