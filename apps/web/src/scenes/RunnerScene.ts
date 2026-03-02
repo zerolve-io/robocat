@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT } from '../config';
+import { getZoneForScore, ZoneConfig } from '../zones/ZoneConfig';
 
 // Cyberpunk palette
 const COLORS = {
@@ -21,6 +21,8 @@ const COLORS = {
   drone: 0xff0044,
   droneCone: 0xff0044,
   scrap: 0xffd700,
+  obstacle: 0x444466,
+  obstaclePipe: 0x556677,
 };
 
 const CAT_X = 150;
@@ -33,13 +35,6 @@ const WALL_JUMP_VELOCITY_X = 200;
 const WALL_JUMP_VELOCITY_Y = -350;
 const POUNCE_VELOCITY = 500; // downward slam
 const POUNCE_BOUNCE = -450; // bounce after hitting drone
-const SCROLL_SPEED_BASE = 220;
-const SCROLL_SPEED_CAP = 500;
-const SCROLL_SPEED_GAIN = 0.25; // per score point
-const GAP_MIN = 5;
-const GAP_MAX = 35;
-const BUILDING_WIDTH_MIN = 150;
-const BUILDING_WIDTH_MAX = 300;
 
 export class RunnerScene extends Phaser.Scene {
   private cat!: Phaser.GameObjects.Container;
@@ -48,6 +43,12 @@ export class RunnerScene extends Phaser.Scene {
   private drones!: Phaser.GameObjects.Group;
   private scraps!: Phaser.GameObjects.Group;
   private neonSigns!: Phaser.GameObjects.Group;
+  private obstacles!: Phaser.GameObjects.Group;
+
+  // Zone tracking
+  private currentZone!: ZoneConfig;
+  private zoneText!: Phaser.GameObjects.Text;
+  private distanceTravelled = 0;
 
   // Thruster references so we can glow them on pounce
   private thrusterL!: Phaser.GameObjects.Rectangle;
@@ -95,12 +96,20 @@ export class RunnerScene extends Phaser.Scene {
     this.isWallSliding = false;
     this.wallSlideSide = null;
     this.isPouncing = false;
+    this.distanceTravelled = 0;
+    this.currentZone = getZoneForScore(0);
 
     // Load high score
     this.highScore = parseInt(localStorage.getItem('robocat_highscore') || '0', 10);
 
-    // Background gradient (fake with rectangles)
-    this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x0a0a0f);
+    // Background gradient (fake with rectangles) — use runtime dimensions
+    this.add.rectangle(
+      this.screenWidth / 2,
+      this.screenHeight / 2,
+      this.screenWidth,
+      this.screenHeight,
+      this.currentZone.color.bgTint
+    );
 
     // Distant city silhouette
     this.createBackgroundCity();
@@ -110,6 +119,7 @@ export class RunnerScene extends Phaser.Scene {
     this.drones = this.add.group();
     this.scraps = this.add.group();
     this.neonSigns = this.add.group();
+    this.obstacles = this.add.group();
 
     // Initial buildings
     this.lastBuildingX = 0;
@@ -125,11 +135,20 @@ export class RunnerScene extends Phaser.Scene {
       color: '#05d9e8',
     });
 
+    // Zone indicator (top right)
+    this.zoneText = this.add
+      .text(this.screenWidth - 20, 20, this.currentZone.name, {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#888888',
+      })
+      .setOrigin(1, 0);
+
     // Instructions
     this.add
       .text(
-        GAME_WIDTH / 2,
-        GAME_HEIGHT / 2 - 50,
+        this.screenWidth / 2,
+        this.screenHeight / 2 - 50,
         'SPACE/TAP: Jump  |  SHIFT/→: Dash  |  DOWN/↓: Pounce',
         {
           fontFamily: 'monospace',
@@ -142,8 +161,8 @@ export class RunnerScene extends Phaser.Scene {
 
     this.add
       .text(
-        GAME_WIDTH / 2,
-        GAME_HEIGHT / 2,
+        this.screenWidth / 2,
+        this.screenHeight / 2,
         'Double-tap: double jump. Swipe: dash/pounce. Wall-slide on buildings.',
         {
           fontFamily: 'monospace',
@@ -196,6 +215,9 @@ export class RunnerScene extends Phaser.Scene {
     this.physics.add.collider(this.cat, this.buildings, (_cat, building) => {
       this.onBuildingCollision(building as Phaser.GameObjects.Rectangle);
     });
+    this.physics.add.collider(this.cat, this.obstacles, (_cat, _obstacle) => {
+      this.onObstacleCollision();
+    });
     this.physics.add.overlap(this.cat, this.drones, (_cat, drone) => {
       this.onDroneContact(drone as Phaser.GameObjects.Container);
     });
@@ -204,16 +226,21 @@ export class RunnerScene extends Phaser.Scene {
     });
   }
 
+  private onObstacleCollision(): void {
+    // Obstacles block movement but don't kill — cat needs to jump over
+    // Just ensure physics handles blocking
+  }
+
   private createBackgroundCity(): void {
     // Parallax background buildings (non-interactive)
     for (let i = 0; i < 15; i++) {
-      const x = Phaser.Math.Between(0, GAME_WIDTH);
+      const x = Phaser.Math.Between(0, this.screenWidth);
       const height = Phaser.Math.Between(100, 300);
       const width = Phaser.Math.Between(30, 80);
       const shade = Phaser.Math.Between(0x08, 0x15);
       const color = (shade << 16) | (shade << 8) | (shade + 0x10);
 
-      this.add.rectangle(x, GAME_HEIGHT - height / 2, width, height, color).setAlpha(0.5);
+      this.add.rectangle(x, this.screenHeight - height / 2, width, height, color).setAlpha(0.5);
     }
   }
 
@@ -347,11 +374,12 @@ export class RunnerScene extends Phaser.Scene {
 
   private spawnInitialBuildings(): void {
     let x = 0;
+    const z = this.currentZone;
     while (x < this.screenWidth + 400) {
-      const width = Phaser.Math.Between(BUILDING_WIDTH_MIN, BUILDING_WIDTH_MAX);
-      const height = Phaser.Math.Between(140, 180);
+      const width = Phaser.Math.Between(z.buildingWidthMin, z.buildingWidthMax);
+      const height = Phaser.Math.Between(z.buildingHeightMin, z.buildingHeightMax);
       this.spawnBuilding(x + width / 2, height, width);
-      x += width + Phaser.Math.Between(0, 30); // Slight gaps OK at start
+      x += width + Phaser.Math.Between(0, 20); // Minimal gaps at start
     }
   }
 
@@ -838,7 +866,7 @@ export class RunnerScene extends Phaser.Scene {
 
     // Game over text
     this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 30, 'DETECTED', {
+      .text(this.screenWidth / 2, this.screenHeight / 2 - 30, 'DETECTED', {
         fontFamily: 'monospace',
         fontSize: '48px',
         color: '#ff2a6d',
@@ -847,8 +875,8 @@ export class RunnerScene extends Phaser.Scene {
 
     this.add
       .text(
-        GAME_WIDTH / 2,
-        GAME_HEIGHT / 2 + 20,
+        this.screenWidth / 2,
+        this.screenHeight / 2 + 20,
         `Score: ${this.score}  |  Best: ${this.highScore}`,
         {
           fontFamily: 'monospace',
@@ -859,7 +887,7 @@ export class RunnerScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 60, 'Tap to retry', {
+      .text(this.screenWidth / 2, this.screenHeight / 2 + 60, 'Tap to retry', {
         fontFamily: 'monospace',
         fontSize: '16px',
         color: '#888888',
@@ -938,12 +966,20 @@ export class RunnerScene extends Phaser.Scene {
       this.catBody.setVelocityX(0);
     }
 
-    // Dynamic scroll speed: starts at 250, +0.5 per score point, capped at 500
+    // Check for zone transition
+    const newZone = getZoneForScore(this.score);
+    if (newZone !== this.currentZone) {
+      this.onZoneTransition(newZone);
+    }
+
+    // Dynamic scroll speed from current zone
+    const speedGain = (this.score - this.currentZone.scoreThreshold) * 0.5;
     const currentSpeed = Math.min(
-      SCROLL_SPEED_BASE + this.score * SCROLL_SPEED_GAIN,
-      SCROLL_SPEED_CAP
+      this.currentZone.scrollSpeedBase + speedGain,
+      this.currentZone.scrollSpeedCap
     );
     const scrollDelta = (currentSpeed * delta) / 1000;
+    this.distanceTravelled += scrollDelta;
 
     // Scroll buildings
     this.buildings.getChildren().forEach((b) => {
@@ -973,6 +1009,22 @@ export class RunnerScene extends Phaser.Scene {
       }
     });
 
+    // Scroll obstacles
+    this.obstacles.getChildren().forEach((o) => {
+      const obs = o as Phaser.GameObjects.Rectangle & {
+        parentBuilding?: Phaser.GameObjects.Rectangle;
+      };
+      if (obs.parentBuilding && obs.parentBuilding.active) {
+        obs.x -= scrollDelta;
+        const obsBody = obs.body as Phaser.Physics.Arcade.StaticBody;
+        if (obsBody) {
+          obsBody.updateFromGameObject();
+        }
+      } else {
+        obs.destroy();
+      }
+    });
+
     // Scroll drones
     this.drones.getChildren().forEach((d) => {
       const drone = d as Phaser.GameObjects.Container;
@@ -990,22 +1042,27 @@ export class RunnerScene extends Phaser.Scene {
     // Track scroll for building spawner
     this.lastBuildingX -= scrollDelta;
 
-    // Spawn new buildings
+    // Spawn new buildings using zone parameters
+    const z = this.currentZone;
     while (this.lastBuildingX < this.screenWidth + 400) {
-      const gap = Phaser.Math.Between(GAP_MIN, GAP_MAX);
-      const width = Phaser.Math.Between(BUILDING_WIDTH_MIN, BUILDING_WIDTH_MAX);
-      const height = Phaser.Math.Between(140, 180);
+      const gap = Phaser.Math.Between(z.gapMin, z.gapMax);
+      const width = Phaser.Math.Between(z.buildingWidthMin, z.buildingWidthMax);
+      const height = Phaser.Math.Between(z.buildingHeightMin, z.buildingHeightMax);
       const x = this.lastBuildingX + gap + width / 2;
-      this.spawnBuilding(x, height, width);
+      const building = this.spawnBuilding(x, height, width);
 
-      // Maybe spawn drone — ramp up gradually
-      const droneChance = this.score > 50 ? 0.25 : this.score > 20 ? 0.15 : 0;
-      if (Math.random() < droneChance) {
+      // Maybe spawn rooftop obstacle
+      if (Math.random() < z.obstacleChance) {
+        this.spawnObstacle(building);
+      }
+
+      // Maybe spawn drone
+      if (Math.random() < z.droneChance) {
         this.spawnDrone(x, this.screenHeight - height - 60);
       }
 
       // Maybe spawn scrap
-      if (Math.random() < 0.4) {
+      if (Math.random() < z.scrapChance) {
         this.spawnScrap(x - width / 4, this.screenHeight - height - 40);
       }
     }
@@ -1020,6 +1077,91 @@ export class RunnerScene extends Phaser.Scene {
       const neon = n as Phaser.GameObjects.Rectangle;
       neon.setAlpha(0.6 + Math.sin(Date.now() / 200 + i) * 0.3);
     });
+  }
+
+  private onZoneTransition(newZone: ZoneConfig): void {
+    this.currentZone = newZone;
+
+    // Update zone indicator
+    this.zoneText.setText(newZone.name);
+
+    // Flash effect for zone transition
+    const flash = this.add.rectangle(
+      this.screenWidth / 2,
+      this.screenHeight / 2,
+      this.screenWidth,
+      this.screenHeight,
+      0xffffff
+    );
+    flash.setAlpha(0.3);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration: 500,
+      onComplete: () => flash.destroy(),
+    });
+
+    // Zone announcement
+    const announce = this.add
+      .text(this.screenWidth / 2, this.screenHeight / 3, `» ${newZone.name} «`, {
+        fontFamily: 'monospace',
+        fontSize: '32px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    this.tweens.add({
+      targets: announce,
+      alpha: 0,
+      y: this.screenHeight / 3 - 50,
+      duration: 1500,
+      onComplete: () => announce.destroy(),
+    });
+
+    // Screen shake
+    this.cameras.main.shake(200, 0.01);
+  }
+
+  private spawnObstacle(building: Phaser.GameObjects.Rectangle): void {
+    const buildingTop = building.y - building.height / 2;
+    const obstacleType = Phaser.Math.RND.pick(['ac_unit', 'antenna', 'pipe']);
+
+    let obstacle: Phaser.GameObjects.Rectangle;
+
+    switch (obstacleType) {
+      case 'ac_unit':
+        obstacle = this.add.rectangle(
+          building.x + Phaser.Math.Between(-building.width / 4, building.width / 4),
+          buildingTop - 15,
+          30,
+          30,
+          COLORS.obstacle
+        );
+        break;
+      case 'antenna':
+        obstacle = this.add.rectangle(
+          building.x + Phaser.Math.Between(-building.width / 4, building.width / 4),
+          buildingTop - 25,
+          6,
+          50,
+          COLORS.obstaclePipe
+        );
+        break;
+      case 'pipe':
+      default:
+        obstacle = this.add.rectangle(
+          building.x + Phaser.Math.Between(-building.width / 4, building.width / 4),
+          buildingTop - 10,
+          40,
+          20,
+          COLORS.obstaclePipe
+        );
+        break;
+    }
+
+    // Make obstacle collidable
+    this.physics.add.existing(obstacle, true);
+    (obstacle as unknown as { parentBuilding: typeof building }).parentBuilding = building;
+    this.obstacles.add(obstacle);
   }
 
   private spawnDrone(x: number, y: number): void {
