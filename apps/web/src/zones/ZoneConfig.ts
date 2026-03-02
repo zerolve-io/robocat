@@ -17,6 +17,7 @@ export interface ZoneConfig {
   droneChance: number;
   scrapChance: number;
   obstacleChance: number; // rooftop obstacles (AC units, antennas)
+  maxHeightStep: number; // max height difference between adjacent buildings
   scoreThreshold: number; // score needed to enter this zone
 }
 
@@ -34,11 +35,12 @@ export const ZONES: ZoneConfig[] = [
     gapMax: 25,
     buildingWidthMin: 180,
     buildingWidthMax: 300,
-    buildingHeightMin: 150,
-    buildingHeightMax: 170,
+    buildingHeightMin: 120,
+    buildingHeightMax: 200,
     droneChance: 0,
     scrapChance: 0.4,
     obstacleChance: 0,
+    maxHeightStep: 30,
     scoreThreshold: 0,
   },
   {
@@ -54,11 +56,12 @@ export const ZONES: ZoneConfig[] = [
     gapMax: 45,
     buildingWidthMin: 150,
     buildingWidthMax: 280,
-    buildingHeightMin: 130,
-    buildingHeightMax: 190,
+    buildingHeightMin: 100,
+    buildingHeightMax: 240,
     droneChance: 0.1,
     scrapChance: 0.45,
     obstacleChance: 0.15,
+    maxHeightStep: 50,
     scoreThreshold: 15,
   },
   {
@@ -74,11 +77,12 @@ export const ZONES: ZoneConfig[] = [
     gapMax: 65,
     buildingWidthMin: 120,
     buildingWidthMax: 260,
-    buildingHeightMin: 120,
-    buildingHeightMax: 210,
+    buildingHeightMin: 80,
+    buildingHeightMax: 280,
     droneChance: 0.2,
     scrapChance: 0.5,
     obstacleChance: 0.25,
+    maxHeightStep: 70,
     scoreThreshold: 40,
   },
   {
@@ -94,11 +98,12 @@ export const ZONES: ZoneConfig[] = [
     gapMax: 80,
     buildingWidthMin: 100,
     buildingWidthMax: 240,
-    buildingHeightMin: 100,
-    buildingHeightMax: 240,
+    buildingHeightMin: 60,
+    buildingHeightMax: 320,
     droneChance: 0.3,
     scrapChance: 0.5,
     obstacleChance: 0.35,
+    maxHeightStep: 100,
     scoreThreshold: 80,
   },
 ];

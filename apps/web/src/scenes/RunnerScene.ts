@@ -76,6 +76,7 @@ export class RunnerScene extends Phaser.Scene {
   private shiftKey!: Phaser.Input.Keyboard.Key;
 
   private lastBuildingX = 0;
+  private lastBuildingHeight = 160;
   private buildingPool: Phaser.GameObjects.Rectangle[] = [];
 
   constructor() {
@@ -88,6 +89,7 @@ export class RunnerScene extends Phaser.Scene {
     this.gameOver = false;
     this.started = false;
     this.lastBuildingX = 0;
+    this.lastBuildingHeight = 160;
     this.buildingPool = [];
     this.canDoubleJump = true;
     this.canDash = true;
@@ -377,7 +379,13 @@ export class RunnerScene extends Phaser.Scene {
     const z = this.currentZone;
     while (x < this.screenWidth + 400) {
       const width = Phaser.Math.Between(z.buildingWidthMin, z.buildingWidthMax);
-      const height = Phaser.Math.Between(z.buildingHeightMin, z.buildingHeightMax);
+      const rawHeight = Phaser.Math.Between(z.buildingHeightMin, z.buildingHeightMax);
+      const height = Phaser.Math.Clamp(
+        rawHeight,
+        Math.max(z.buildingHeightMin, this.lastBuildingHeight - z.maxHeightStep),
+        Math.min(z.buildingHeightMax, this.lastBuildingHeight + z.maxHeightStep)
+      );
+      this.lastBuildingHeight = height;
       this.spawnBuilding(x + width / 2, height, width);
       x += width + Phaser.Math.Between(0, 20); // Minimal gaps at start
     }
@@ -1047,7 +1055,14 @@ export class RunnerScene extends Phaser.Scene {
     while (this.lastBuildingX < this.screenWidth + 400) {
       const gap = Phaser.Math.Between(z.gapMin, z.gapMax);
       const width = Phaser.Math.Between(z.buildingWidthMin, z.buildingWidthMax);
-      const height = Phaser.Math.Between(z.buildingHeightMin, z.buildingHeightMax);
+      // Constrain height: random within zone range but clamped to ±maxHeightStep of previous
+      const rawHeight = Phaser.Math.Between(z.buildingHeightMin, z.buildingHeightMax);
+      const height = Phaser.Math.Clamp(
+        rawHeight,
+        Math.max(z.buildingHeightMin, this.lastBuildingHeight - z.maxHeightStep),
+        Math.min(z.buildingHeightMax, this.lastBuildingHeight + z.maxHeightStep)
+      );
+      this.lastBuildingHeight = height;
       const x = this.lastBuildingX + gap + width / 2;
       const building = this.spawnBuilding(x, height, width);
 
