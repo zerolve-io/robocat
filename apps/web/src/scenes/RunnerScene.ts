@@ -34,13 +34,13 @@ const WALL_JUMP_VELOCITY_X = 200;
 const WALL_JUMP_VELOCITY_Y = -350;
 const POUNCE_VELOCITY = 500; // downward slam
 const POUNCE_BOUNCE = -450; // bounce after hitting drone
-const SCROLL_SPEED_BASE = 250;
-const SCROLL_SPEED_CAP = 500;
-const SCROLL_SPEED_GAIN = 0.5; // per score point
-const GAP_MIN = 80;
-const GAP_MAX = 150;
-const BUILDING_WIDTH_MIN = 120;
-const BUILDING_WIDTH_MAX = 250;
+const SCROLL_SPEED_BASE = 160;
+const SCROLL_SPEED_CAP = 400;
+const SCROLL_SPEED_GAIN = 0.15; // per score point — slow ramp
+const GAP_MIN = 40;
+const GAP_MAX = 90;
+const BUILDING_WIDTH_MIN = 150;
+const BUILDING_WIDTH_MAX = 300;
 
 export class RunnerScene extends Phaser.Scene {
   private cat!: Phaser.GameObjects.Container;
@@ -131,7 +131,7 @@ export class RunnerScene extends Phaser.Scene {
       .text(
         GAME_WIDTH / 2,
         GAME_HEIGHT / 2 - 50,
-        'SPACE/TAP: Jump  |  SHIFT: Dash  |  DOWN: Pounce',
+        'SPACE/TAP: Jump  |  SHIFT/→: Dash  |  DOWN/↓: Pounce',
         {
           fontFamily: 'monospace',
           fontSize: '18px',
@@ -145,7 +145,7 @@ export class RunnerScene extends Phaser.Scene {
       .text(
         GAME_WIDTH / 2,
         GAME_HEIGHT / 2,
-        'Double-tap to double jump. Wall-slide on buildings.',
+        'Double-tap: double jump. Swipe: dash/pounce. Wall-slide on buildings.',
         {
           fontFamily: 'monospace',
           fontSize: '14px',
@@ -159,10 +159,39 @@ export class RunnerScene extends Phaser.Scene {
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.shiftKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
 
-    this.input.on('pointerdown', () => this.handleJump());
+    // Keyboard input
     this.input.keyboard?.on('keydown-SPACE', () => this.handleJump());
     this.input.keyboard?.on('keydown-SHIFT', () => this.handleDash());
     this.input.keyboard?.on('keydown-DOWN', () => this.handlePounce());
+
+    // Touch / pointer: tap = jump, swipe right = dash, swipe down = pounce
+    let pointerStartX = 0;
+    let pointerStartY = 0;
+    let pointerStartTime = 0;
+    this.input.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
+      pointerStartX = ptr.x;
+      pointerStartY = ptr.y;
+      pointerStartTime = this.time.now;
+    });
+    this.input.on('pointerup', (ptr: Phaser.Input.Pointer) => {
+      const dx = ptr.x - pointerStartX;
+      const dy = ptr.y - pointerStartY;
+      const dt = this.time.now - pointerStartTime;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > 40 && dt < 400) {
+        // Swipe detected
+        if (Math.abs(dx) > Math.abs(dy) && dx > 0) {
+          this.handleDash(); // swipe right
+        } else if (dy > 0 && Math.abs(dy) > Math.abs(dx)) {
+          this.handlePounce(); // swipe down
+        } else {
+          this.handleJump(); // swipe up or left = jump
+        }
+      } else {
+        this.handleJump(); // tap = jump
+      }
+    });
 
     // Collision — use callback to detect wall slides
     this.physics.add.collider(this.cat, this.buildings, (_cat, building) => {
@@ -950,12 +979,13 @@ export class RunnerScene extends Phaser.Scene {
     while (this.lastBuildingX < GAME_WIDTH + 400) {
       const gap = Phaser.Math.Between(GAP_MIN, GAP_MAX);
       const width = Phaser.Math.Between(BUILDING_WIDTH_MIN, BUILDING_WIDTH_MAX);
-      const height = Phaser.Math.Between(80, 180);
+      const height = Phaser.Math.Between(100, 180);
       const x = this.lastBuildingX + gap + width / 2;
       this.spawnBuilding(x, height, width);
 
-      // Maybe spawn drone
-      if (Math.random() < 0.3 && this.score > 5) {
+      // Maybe spawn drone — ramp up gradually
+      const droneChance = this.score > 50 ? 0.25 : this.score > 20 ? 0.15 : 0;
+      if (Math.random() < droneChance) {
         this.spawnDrone(x, GAME_HEIGHT - height - 60);
       }
 
@@ -966,7 +996,7 @@ export class RunnerScene extends Phaser.Scene {
     }
 
     // Check if cat fell
-    if (this.cat.y > GAME_HEIGHT + 50) {
+    if (this.cat.y > GAME_HEIGHT + 100) {
       this.onHitDrone(); // Same death handling
     }
 
