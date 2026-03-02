@@ -11,6 +11,6 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.scene.start('PatrolScene');
+    this.scene.start('RunnerScene');
   }
 }

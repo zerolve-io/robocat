@@ -36,8 +36,8 @@ const POUNCE_BOUNCE = -450; // bounce after hitting drone
 const SCROLL_SPEED_BASE = 160;
 const SCROLL_SPEED_CAP = 400;
 const SCROLL_SPEED_GAIN = 0.15; // per score point — slow ramp
-const GAP_MIN = 40;
-const GAP_MAX = 90;
+const GAP_MIN = 5;
+const GAP_MAX = 35;
 const BUILDING_WIDTH_MIN = 150;
 const BUILDING_WIDTH_MAX = 300;
 
@@ -344,7 +344,7 @@ export class RunnerScene extends Phaser.Scene {
     let x = 0;
     while (x < this.screenWidth + 400) {
       const width = Phaser.Math.Between(BUILDING_WIDTH_MIN, BUILDING_WIDTH_MAX);
-      const height = Phaser.Math.Between(80, 150);
+      const height = Phaser.Math.Between(140, 180);
       this.spawnBuilding(x + width / 2, height, width);
       x += width + Phaser.Math.Between(0, 30); // Slight gaps OK at start
     }
@@ -989,7 +989,7 @@ export class RunnerScene extends Phaser.Scene {
     while (this.lastBuildingX < this.screenWidth + 400) {
       const gap = Phaser.Math.Between(GAP_MIN, GAP_MAX);
       const width = Phaser.Math.Between(BUILDING_WIDTH_MIN, BUILDING_WIDTH_MAX);
-      const height = Phaser.Math.Between(100, 180);
+      const height = Phaser.Math.Between(140, 180);
       const x = this.lastBuildingX + gap + width / 2;
       this.spawnBuilding(x, height, width);
 
