@@ -1,7 +1,13 @@
 import Phaser from 'phaser';
 import { getZoneForScore, ZoneConfig } from '../zones/ZoneConfig';
 import { soundManager } from '../audio/SoundManager';
-import { getDeathMeme, getZoneMeme, preloadCatImages } from '../memes/CatMemes';
+import {
+  getDeathMeme,
+  getZoneMeme,
+  getScrapMeme,
+  getHighScoreMeme,
+  preloadCatImages,
+} from '../memes/CatMemes';
 
 // Cyberpunk palette
 const COLORS = {
@@ -1030,6 +1036,20 @@ export class RunnerScene extends Phaser.Scene {
       .setAlpha(0);
     this.tweens.add({ targets: statsLine, alpha: 1, duration: 300, delay: 550 });
 
+    // High score celebration meme
+    if (isNewBest) {
+      const hsMeme = this.add
+        .text(this.screenWidth / 2, this.screenHeight * 0.83, getHighScoreMeme(), {
+          fontFamily: 'monospace',
+          fontSize: '13px',
+          color: '#00ff88',
+          fontStyle: 'italic',
+        })
+        .setOrigin(0.5)
+        .setAlpha(0);
+      this.tweens.add({ targets: hsMeme, alpha: 1, duration: 300, delay: 600 });
+    }
+
     // Share button
     const shareBtn = this.add
       .text(this.screenWidth / 2 - 70, this.screenHeight * 0.87, '📤 SHARE', {
@@ -1128,6 +1148,27 @@ export class RunnerScene extends Phaser.Scene {
       duration: 400,
       onComplete: () => pop.destroy(),
     });
+
+    // Occasional scrap meme
+    const scrapMeme = getScrapMeme();
+    if (scrapMeme) {
+      const memeText = this.add
+        .text(s.x, s.y - 40, scrapMeme, {
+          fontFamily: 'monospace',
+          fontSize: '12px',
+          color: '#ffcc00',
+          fontStyle: 'italic',
+        })
+        .setOrigin(0.5)
+        .setAlpha(0.9);
+      this.tweens.add({
+        targets: memeText,
+        y: memeText.y - 50,
+        alpha: 0,
+        duration: 1000,
+        onComplete: () => memeText.destroy(),
+      });
+    }
   }
 
   private restart(): void {
