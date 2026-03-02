@@ -937,7 +937,9 @@ export class RunnerScene extends Phaser.Scene {
     this.buildings.getChildren().forEach((b) => {
       const building = b as Phaser.GameObjects.Rectangle;
       building.x -= scrollDelta;
-      (building.body as Phaser.Physics.Arcade.StaticBody).x = building.x - building.width / 2;
+      const staticBody = building.body as Phaser.Physics.Arcade.StaticBody;
+      staticBody.x = building.x - building.width / 2;
+      staticBody.updateFromGameObject();
 
       // Remove off-screen buildings
       if (building.x + building.width / 2 < -50) {
@@ -953,8 +955,6 @@ export class RunnerScene extends Phaser.Scene {
         parentBuilding?: Phaser.GameObjects.Rectangle;
       };
       if (neon.parentBuilding && neon.parentBuilding.active) {
-        const dx = neon.x - neon.parentBuilding.x;
-        neon.x = neon.parentBuilding.x + dx - scrollDelta + scrollDelta; // Stay relative
         neon.x -= scrollDelta;
       } else {
         neon.destroy();
