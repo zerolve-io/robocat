@@ -975,6 +975,9 @@ export class RunnerScene extends Phaser.Scene {
       if (scrap.x < -50) scrap.destroy();
     });
 
+    // Track scroll for building spawner
+    this.lastBuildingX -= scrollDelta;
+
     // Spawn new buildings
     while (this.lastBuildingX < GAME_WIDTH + 400) {
       const gap = Phaser.Math.Between(GAP_MIN, GAP_MAX);
