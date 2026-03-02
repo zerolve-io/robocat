@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { getZoneForScore, ZoneConfig } from '../zones/ZoneConfig';
+import { soundManager } from '../audio/SoundManager';
+import { getDeathMeme, getZoneMeme, preloadCatImages } from '../memes/CatMemes';
 
 // Cyberpunk palette
 const COLORS = {
@@ -71,6 +73,20 @@ export class RunnerScene extends Phaser.Scene {
   private wallSlideSide: 'left' | 'right' | null = null;
   private isPouncing = false;
 
+  // Scrap (persistent currency)
+  private scrapCount = 0;
+  private scrapText!: Phaser.GameObjects.Text;
+
+  // Coyote time & input buffering
+  private coyoteTimer = 0; // ms remaining where jump still allowed after leaving ground
+  private jumpBufferTimer = 0; // ms remaining for buffered jump input
+  private wasOnGround = false;
+  private static readonly COYOTE_TIME = 100; // ms grace period
+  private static readonly JUMP_BUFFER = 120; // ms input buffer
+
+  // Mute button
+  private muteText!: Phaser.GameObjects.Text;
+
   // Input
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private shiftKey!: Phaser.Input.Keyboard.Key;
@@ -100,9 +116,17 @@ export class RunnerScene extends Phaser.Scene {
     this.isPouncing = false;
     this.distanceTravelled = 0;
     this.currentZone = getZoneForScore(0);
+    this.coyoteTimer = 0;
+    this.jumpBufferTimer = 0;
+    this.wasOnGround = false;
 
-    // Load high score
+    // Init sound
+    soundManager.init();
+    preloadCatImages();
+
+    // Load persistent data
     this.highScore = parseInt(localStorage.getItem('robocat_highscore') || '0', 10);
+    this.scrapCount = parseInt(localStorage.getItem('robocat_scrap') || '0', 10);
 
     // Background gradient (fake with rectangles) — use runtime dimensions
     this.add.rectangle(
@@ -146,6 +170,26 @@ export class RunnerScene extends Phaser.Scene {
       })
       .setOrigin(1, 0);
 
+    // Scrap counter
+    this.scrapText = this.add.text(20, 50, `⚙ ${this.scrapCount}`, {
+      fontFamily: 'monospace',
+      fontSize: '18px',
+      color: '#ffd700',
+    });
+
+    // Mute button
+    this.muteText = this.add
+      .text(this.screenWidth - 20, 50, '🔊', {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+      })
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true });
+    this.muteText.on('pointerdown', () => {
+      const muted = soundManager.toggleMute();
+      this.muteText.setText(muted ? '🔇' : '🔊');
+    });
+
     // Instructions
     this.add
       .text(
@@ -183,6 +227,10 @@ export class RunnerScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-SPACE', () => this.handleJump());
     this.input.keyboard?.on('keydown-SHIFT', () => this.handleDash());
     this.input.keyboard?.on('keydown-DOWN', () => this.handlePounce());
+    this.input.keyboard?.on('keydown-M', () => {
+      const muted = soundManager.toggleMute();
+      this.muteText.setText(muted ? '🔇' : '🔊');
+    });
 
     // Touch / pointer: tap = jump, swipe right = dash, swipe down = pounce
     let pointerStartX = 0;
@@ -453,6 +501,7 @@ export class RunnerScene extends Phaser.Scene {
     }
 
     this.startGame();
+    soundManager.ensureResumed();
 
     const onGround = this.catBody.blocked.down || this.catBody.touching.down;
 
@@ -461,17 +510,21 @@ export class RunnerScene extends Phaser.Scene {
       this.isWallSliding = false;
       const jumpX = this.wallSlideSide === 'right' ? -WALL_JUMP_VELOCITY_X : WALL_JUMP_VELOCITY_X;
       this.catBody.setVelocity(jumpX, WALL_JUMP_VELOCITY_Y);
-      this.canDoubleJump = true; // Reset double jump after wall jump
+      this.canDoubleJump = true;
       this.createJumpEffect();
+      soundManager.jump();
       this.wallSlideSide = null;
       return;
     }
 
-    // Ground jump
-    if (onGround) {
+    // Ground jump (includes coyote time)
+    if (onGround || this.coyoteTimer > 0) {
       this.catBody.setVelocityY(JUMP_VELOCITY);
       this.canDoubleJump = true;
+      this.coyoteTimer = 0; // consume coyote
+      this.jumpBufferTimer = 0;
       this.createJumpEffect();
+      soundManager.jump();
       return;
     }
 
@@ -480,30 +533,33 @@ export class RunnerScene extends Phaser.Scene {
       this.catBody.setVelocityY(DOUBLE_JUMP_VELOCITY);
       this.canDoubleJump = false;
       this.createDoubleJumpEffect();
+      soundManager.doubleJump();
+      return;
     }
+
+    // If none worked, buffer the input
+    this.jumpBufferTimer = RunnerScene.JUMP_BUFFER;
   }
 
   private handleDash(): void {
     if (this.gameOver || !this.canDash || this.isDashing) return;
 
     this.startGame();
+    soundManager.ensureResumed();
 
     this.isDashing = true;
     this.canDash = false;
     this.dashEndTime = this.time.now + DASH_DURATION;
 
-    // Horizontal burst
     this.catBody.setVelocityX(DASH_VELOCITY);
-    this.catBody.setVelocityY(0); // Cancel vertical momentum
+    this.catBody.setVelocityY(0);
     this.catBody.setAllowGravity(false);
 
-    // Dash visual
     this.createDashEffect();
+    soundManager.dash();
 
-    // Screen shake
     this.cameras.main.shake(100, 0.005);
 
-    // Pounce animation - rotate cat forward
     this.tweens.add({
       targets: this.cat,
       angle: 15,
@@ -516,13 +572,15 @@ export class RunnerScene extends Phaser.Scene {
     if (this.gameOver) return;
 
     const onGround = this.catBody.blocked.down || this.catBody.touching.down;
-    if (onGround || this.isPouncing) return; // Must be in air
+    if (onGround || this.isPouncing) return;
 
     this.startGame();
+    soundManager.ensureResumed();
 
     this.isPouncing = true;
     this.catBody.setVelocityY(POUNCE_VELOCITY);
     this.catBody.setVelocityX(0);
+    soundManager.pounce();
 
     // Rotate cat downward
     this.tweens.add({
@@ -594,7 +652,8 @@ export class RunnerScene extends Phaser.Scene {
     this.isWallSliding = true;
     this.wallSlideSide = side;
     this.catBody.setVelocityY(WALL_SLIDE_VELOCITY);
-    this.canDoubleJump = true; // Can double jump after wall slide
+    this.canDoubleJump = true;
+    soundManager.wallSlide();
 
     // Visual: tilt cat toward wall
     this.cat.setAngle(side === 'right' ? -10 : 10);
@@ -618,6 +677,7 @@ export class RunnerScene extends Phaser.Scene {
   private onPounceLand(): void {
     this.isPouncing = false;
     this.cat.setAngle(0);
+    soundManager.pounceLand();
 
     // Screen shake
     this.cameras.main.shake(150, 0.015);
@@ -645,6 +705,7 @@ export class RunnerScene extends Phaser.Scene {
       this.catBody.setVelocityY(POUNCE_BOUNCE);
       this.isPouncing = false;
       this.cat.setAngle(0);
+      soundManager.droneDestroy();
 
       // Style bonus
       this.score += 25;
@@ -857,6 +918,7 @@ export class RunnerScene extends Phaser.Scene {
   private onHitDrone(): void {
     if (this.gameOver) return;
     this.gameOver = true;
+    soundManager.death();
 
     // Flash screen red
     this.cameras.main.flash(200, 255, 0, 68);
@@ -866,45 +928,176 @@ export class RunnerScene extends Phaser.Scene {
     this.catBody.setVelocity(0, 0);
     this.catBody.setAllowGravity(false);
 
-    // Update high score
+    // Save persistent data
     if (this.score > this.highScore) {
       this.highScore = this.score;
       localStorage.setItem('robocat_highscore', String(this.highScore));
     }
+    localStorage.setItem('robocat_scrap', String(this.scrapCount));
 
-    // Game over text
-    this.add
-      .text(this.screenWidth / 2, this.screenHeight / 2 - 30, 'DETECTED', {
+    // Get a cat meme
+    const meme = getDeathMeme();
+
+    // Dark overlay
+    const overlay = this.add.rectangle(
+      this.screenWidth / 2,
+      this.screenHeight / 2,
+      this.screenWidth,
+      this.screenHeight,
+      0x000000
+    );
+    overlay.setAlpha(0);
+    this.tweens.add({ targets: overlay, alpha: 0.7, duration: 300 });
+
+    // "DETECTED" title
+    const title = this.add
+      .text(this.screenWidth / 2, this.screenHeight * 0.15, 'DETECTED', {
         fontFamily: 'monospace',
         fontSize: '48px',
         color: '#ff2a6d',
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.tweens.add({ targets: title, alpha: 1, y: title.y + 10, duration: 400 });
 
-    this.add
+    // Cat meme image (loaded as DOM image, rendered as Phaser texture)
+    const memeKey = `catmeme_${Date.now()}`;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (!this.scene.isActive()) return;
+      try {
+        this.textures.addImage(memeKey, img);
+        const memeImg = this.add
+          .image(this.screenWidth / 2, this.screenHeight * 0.42, memeKey)
+          .setOrigin(0.5)
+          .setAlpha(0);
+        // Scale to fit ~250px wide
+        const scale = 250 / Math.max(img.width, 1);
+        memeImg.setScale(scale);
+        this.tweens.add({ targets: memeImg, alpha: 1, duration: 300, delay: 200 });
+      } catch {
+        // Texture add can fail, just show caption
+      }
+    };
+    img.onerror = () => {
+      // If image fails, just show the caption text bigger
+    };
+    img.src = meme.imageUrl;
+
+    // Meme caption (always shown as fallback too)
+    const caption = this.add
+      .text(this.screenWidth / 2, this.screenHeight * 0.62, `"${meme.caption}"`, {
+        fontFamily: 'monospace',
+        fontSize: '18px',
+        color: '#ffcc00',
+        fontStyle: 'italic',
+      })
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.tweens.add({ targets: caption, alpha: 1, duration: 300, delay: 400 });
+
+    // Score + high score
+    const isNewBest = this.score >= this.highScore;
+    const scoreLine = this.add
       .text(
         this.screenWidth / 2,
-        this.screenHeight / 2 + 20,
-        `Score: ${this.score}  |  Best: ${this.highScore}`,
+        this.screenHeight * 0.72,
+        `Score: ${this.score}  |  Best: ${this.highScore}${isNewBest ? '  🏆 NEW!' : ''}`,
         {
           fontFamily: 'monospace',
           fontSize: '20px',
           color: '#ffffff',
         }
       )
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.tweens.add({ targets: scoreLine, alpha: 1, duration: 300, delay: 500 });
 
-    this.add
-      .text(this.screenWidth / 2, this.screenHeight / 2 + 60, 'Tap to retry', {
+    // Zone reached + scrap collected this run
+    const statsLine = this.add
+      .text(
+        this.screenWidth / 2,
+        this.screenHeight * 0.78,
+        `Zone: ${this.currentZone.name}  |  ⚙ ${this.scrapCount} total`,
+        {
+          fontFamily: 'monospace',
+          fontSize: '14px',
+          color: '#888888',
+        }
+      )
+      .setOrigin(0.5)
+      .setAlpha(0);
+    this.tweens.add({ targets: statsLine, alpha: 1, duration: 300, delay: 550 });
+
+    // Share button
+    const shareBtn = this.add
+      .text(this.screenWidth / 2 - 70, this.screenHeight * 0.87, '📤 SHARE', {
         fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#888888',
+        fontSize: '18px',
+        color: '#05d9e8',
+        backgroundColor: '#1a1a2e',
+        padding: { x: 12, y: 8 },
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .setAlpha(0);
+    shareBtn.on('pointerdown', () => this.shareScore());
+    this.tweens.add({ targets: shareBtn, alpha: 1, duration: 300, delay: 700 });
+
+    // Retry button
+    const retryBtn = this.add
+      .text(this.screenWidth / 2 + 70, this.screenHeight * 0.87, '🔄 RETRY', {
+        fontFamily: 'monospace',
+        fontSize: '18px',
+        color: '#00ff88',
+        backgroundColor: '#1a1a2e',
+        padding: { x: 12, y: 8 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .setAlpha(0);
+    retryBtn.on('pointerdown', () => this.restart());
+    this.tweens.add({ targets: retryBtn, alpha: 1, duration: 300, delay: 700 });
+
+    // Tap to retry hint
+    this.add
+      .text(this.screenWidth / 2, this.screenHeight * 0.94, 'SPACE / TAP to retry', {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#555555',
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.6);
+  }
+
+  private shareScore(): void {
+    const text = `🐱⚡ ROBOCAT: Neon Dash\nScore: ${this.score} | Zone: ${this.currentZone.name}\nCan you beat me? 🏙️\nhttps://robocat-web-prod.pages.dev`;
+    if (navigator.share) {
+      navigator.share({ title: 'ROBOCAT: Neon Dash', text }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => {
+        const copied = this.add
+          .text(this.screenWidth / 2, this.screenHeight * 0.82, 'Copied to clipboard!', {
+            fontFamily: 'monospace',
+            fontSize: '14px',
+            color: '#00ff88',
+          })
+          .setOrigin(0.5);
+        this.tweens.add({
+          targets: copied,
+          alpha: 0,
+          y: copied.y - 20,
+          duration: 1500,
+          onComplete: () => copied.destroy(),
+        });
+      });
+    }
   }
 
   private onCollectScrap(scrap: Phaser.GameObjects.Arc): void {
     const s = scrap;
+    soundManager.collectScrap();
 
     // Pop animation
     this.tweens.add({
@@ -916,7 +1109,9 @@ export class RunnerScene extends Phaser.Scene {
     });
 
     this.score += 10;
+    this.scrapCount += 1;
     this.scoreText.setText(`SCORE: ${this.score}`);
+    this.scrapText.setText(`⚙ ${this.scrapCount}`);
 
     // Score pop
     const pop = this.add
@@ -941,6 +1136,33 @@ export class RunnerScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (!this.started || this.gameOver) return;
+
+    // === Coyote Time & Jump Buffer ===
+    const onGround = this.catBody.blocked.down || this.catBody.touching.down;
+
+    if (onGround) {
+      this.coyoteTimer = RunnerScene.COYOTE_TIME;
+      this.wasOnGround = true;
+    } else {
+      if (this.wasOnGround) {
+        // Just left ground — start coyote timer
+        this.wasOnGround = false;
+      }
+      this.coyoteTimer = Math.max(0, this.coyoteTimer - delta);
+    }
+
+    // Process buffered jump
+    if (this.jumpBufferTimer > 0) {
+      this.jumpBufferTimer = Math.max(0, this.jumpBufferTimer - delta);
+      if (onGround || this.coyoteTimer > 0) {
+        this.catBody.setVelocityY(JUMP_VELOCITY);
+        this.canDoubleJump = true;
+        this.coyoteTimer = 0;
+        this.jumpBufferTimer = 0;
+        this.createJumpEffect();
+        soundManager.jump();
+      }
+    }
 
     // === Movement Physics ===
 
@@ -1096,6 +1318,7 @@ export class RunnerScene extends Phaser.Scene {
 
   private onZoneTransition(newZone: ZoneConfig): void {
     this.currentZone = newZone;
+    soundManager.zoneTransition();
 
     // Update zone indicator
     this.zoneText.setText(newZone.name);
@@ -1130,6 +1353,25 @@ export class RunnerScene extends Phaser.Scene {
       y: this.screenHeight / 3 - 50,
       duration: 1500,
       onComplete: () => announce.destroy(),
+    });
+
+    // Cat meme for zone transition
+    const zoneMeme = getZoneMeme();
+    const memeCaption = this.add
+      .text(this.screenWidth / 2, this.screenHeight / 3 + 40, zoneMeme.caption, {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#ffcc00',
+        fontStyle: 'italic',
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.8);
+    this.tweens.add({
+      targets: memeCaption,
+      alpha: 0,
+      y: memeCaption.y - 30,
+      duration: 2000,
+      onComplete: () => memeCaption.destroy(),
     });
 
     // Screen shake
