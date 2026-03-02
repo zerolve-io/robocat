@@ -33,9 +33,9 @@ const WALL_JUMP_VELOCITY_X = 200;
 const WALL_JUMP_VELOCITY_Y = -350;
 const POUNCE_VELOCITY = 500; // downward slam
 const POUNCE_BOUNCE = -450; // bounce after hitting drone
-const SCROLL_SPEED_BASE = 160;
-const SCROLL_SPEED_CAP = 400;
-const SCROLL_SPEED_GAIN = 0.15; // per score point — slow ramp
+const SCROLL_SPEED_BASE = 220;
+const SCROLL_SPEED_CAP = 500;
+const SCROLL_SPEED_GAIN = 0.25; // per score point
 const GAP_MIN = 5;
 const GAP_MAX = 35;
 const BUILDING_WIDTH_MIN = 150;
@@ -222,7 +222,12 @@ export class RunnerScene extends Phaser.Scene {
     // ROBOCAT — all Phaser primitives, no sprite sheets
     // Collision footprint: ~40×30 centred at (0,0)
     // ─────────────────────────────────────────────────────────────
-    this.cat = this.add.container(CAT_X, this.screenHeight - 100 - 50);
+    // Spawn cat on first building's roof
+    const firstBuilding = this.buildings.getChildren()[0] as Phaser.GameObjects.Rectangle;
+    const catY = firstBuilding
+      ? firstBuilding.y - firstBuilding.height / 2 - 20
+      : this.screenHeight - 200;
+    this.cat = this.add.container(CAT_X, catY);
 
     // ── Tail: 3 segments (slightly staggered, mechanical joints) ──
     // Segment 3 (tip)
