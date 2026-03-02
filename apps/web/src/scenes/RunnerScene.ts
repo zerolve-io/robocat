@@ -23,7 +23,6 @@ const COLORS = {
   scrap: 0xffd700,
 };
 
-const GROUND_Y = GAME_HEIGHT - 100;
 const CAT_X = 150;
 const JUMP_VELOCITY = -420;
 const DOUBLE_JUMP_VELOCITY = -380;
@@ -223,7 +222,7 @@ export class RunnerScene extends Phaser.Scene {
     // ROBOCAT — all Phaser primitives, no sprite sheets
     // Collision footprint: ~40×30 centred at (0,0)
     // ─────────────────────────────────────────────────────────────
-    this.cat = this.add.container(CAT_X, GROUND_Y - 50);
+    this.cat = this.add.container(CAT_X, this.screenHeight - 100 - 50);
 
     // ── Tail: 3 segments (slightly staggered, mechanical joints) ──
     // Segment 3 (tip)
@@ -333,9 +332,17 @@ export class RunnerScene extends Phaser.Scene {
     this.catBody.setCollideWorldBounds(false);
   }
 
+  private get screenWidth(): number {
+    return this.scale.width;
+  }
+
+  private get screenHeight(): number {
+    return this.scale.height;
+  }
+
   private spawnInitialBuildings(): void {
     let x = 0;
-    while (x < GAME_WIDTH + 300) {
+    while (x < this.screenWidth + 400) {
       const width = Phaser.Math.Between(BUILDING_WIDTH_MIN, BUILDING_WIDTH_MAX);
       const height = Phaser.Math.Between(80, 150);
       this.spawnBuilding(x + width / 2, height, width);
@@ -344,7 +351,7 @@ export class RunnerScene extends Phaser.Scene {
   }
 
   private spawnBuilding(x: number, height: number, width: number): Phaser.GameObjects.Rectangle {
-    const y = GAME_HEIGHT - height / 2;
+    const y = this.screenHeight - height / 2;
 
     // Main building
     const building = this.add.rectangle(x, y, width, height, COLORS.building);
@@ -979,7 +986,7 @@ export class RunnerScene extends Phaser.Scene {
     this.lastBuildingX -= scrollDelta;
 
     // Spawn new buildings
-    while (this.lastBuildingX < GAME_WIDTH + 400) {
+    while (this.lastBuildingX < this.screenWidth + 400) {
       const gap = Phaser.Math.Between(GAP_MIN, GAP_MAX);
       const width = Phaser.Math.Between(BUILDING_WIDTH_MIN, BUILDING_WIDTH_MAX);
       const height = Phaser.Math.Between(100, 180);
@@ -989,17 +996,17 @@ export class RunnerScene extends Phaser.Scene {
       // Maybe spawn drone — ramp up gradually
       const droneChance = this.score > 50 ? 0.25 : this.score > 20 ? 0.15 : 0;
       if (Math.random() < droneChance) {
-        this.spawnDrone(x, GAME_HEIGHT - height - 60);
+        this.spawnDrone(x, this.screenHeight - height - 60);
       }
 
       // Maybe spawn scrap
       if (Math.random() < 0.4) {
-        this.spawnScrap(x - width / 4, GAME_HEIGHT - height - 40);
+        this.spawnScrap(x - width / 4, this.screenHeight - height - 40);
       }
     }
 
     // Check if cat fell
-    if (this.cat.y > GAME_HEIGHT + 100) {
+    if (this.cat.y > this.screenHeight + 100) {
       this.onHitDrone(); // Same death handling
     }
 
