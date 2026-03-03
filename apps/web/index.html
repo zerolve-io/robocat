@@ -2,75 +2,74 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>RoboCat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RoboCat: Neon Dash — Cyberpunk Rooftop Runner</title>
+    <meta name="description" content="RoboCat: Neon Dash is a cyberpunk runner where you dash rooftops, dodge drones, collect scrap, and upgrade your robo‑cat." />
+    <link rel="canonical" href="https://robocat-web-prod.pages.dev/" />
+
+    <meta property="og:title" content="RoboCat: Neon Dash" />
+    <meta property="og:description" content="Dash rooftops, collect scrap, and upgrade your robo‑cat." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://robocat-web-prod.pages.dev/" />
+    <meta property="og:image" content="https://robocat-web-prod.pages.dev/og.svg" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="RoboCat: Neon Dash" />
+    <meta name="twitter:description" content="Dash rooftops, collect scrap, and upgrade your robo‑cat." />
+    <meta name="twitter:image" content="https://robocat-web-prod.pages.dev/og.svg" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "RoboCat: Neon Dash",
+        "description": "A cyberpunk rooftop runner where you dash, dodge drones, and upgrade your robo‑cat.",
+        "genre": ["Action", "Arcade"],
+        "operatingSystem": "Web",
+        "applicationCategory": "Game",
+        "url": "https://robocat-web-prod.pages.dev/",
+        "inLanguage": "en"
+      }
+    </script>
+
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      html,
-      body {
-        width: 100%;
-        height: 100%;
-      }
-      body {
-        background: #0a0a0f;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100dvh;
-        overflow: hidden;
-        padding: 0;
-      }
-      canvas {
-        display: block;
-      }
-      #loading {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        color: #00ffc8;
-        font-family: monospace;
-        font-size: 1.2rem;
-        text-align: center;
-        letter-spacing: 0.1em;
-      }
-      #loading .bar {
-        margin-top: 1rem;
-        width: 200px;
-        height: 4px;
-        background: #1a1a2e;
-        border-radius: 2px;
-        overflow: hidden;
-      }
-      #loading .bar::after {
-        content: '';
-        display: block;
-        width: 40%;
-        height: 100%;
-        background: #00ffc8;
-        animation: pulse 1s ease-in-out infinite;
-      }
-      @keyframes pulse {
-        0%,
-        100% {
-          transform: translateX(-100%);
-        }
-        50% {
-          transform: translateX(350%);
-        }
-      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #0a0a0f; color: #e8f6ff; font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
+      a { color: #00ffc8; text-decoration: none; }
+      header { padding: 3rem 2rem 2rem; text-align: center; }
+      h1 { color: #00ffc8; font-size: 2.2rem; margin-bottom: 0.75rem; }
+      p { max-width: 760px; margin: 0.5rem auto; line-height: 1.6; }
+      .cta { margin-top: 1.5rem; display: inline-block; padding: 0.75rem 1.4rem; border-radius: 999px; background: #00ffc8; color: #0a0a0f; font-weight: 700; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; max-width: 900px; margin: 2rem auto; padding: 0 2rem 2rem; }
+      .card { background: #111320; border: 1px solid #1b1f2e; padding: 1.2rem; border-radius: 14px; }
+      footer { text-align: center; padding: 2rem; color: #8899aa; font-size: 0.9rem; }
     </style>
   </head>
   <body>
-    <div id="loading">
-      ROBOCAT<br />
-      <span style="font-size: 0.7rem; color: #666">LOADING...</span>
-      <div class="bar"></div>
-    </div>
-    <script type="module" src="/src/main.ts"></script>
+    <header>
+      <h1>RoboCat: Neon Dash</h1>
+      <p>Dash rooftops, dodge drones, collect scrap, and upgrade your robo‑cat across neon city zones.</p>
+      <a class="cta" href="/play">Play Now →</a>
+      <p><a href="/how-to-play">How to play</a> · <a href="/tips">Tips</a> · <a href="/updates">Updates</a></p>
+    </header>
+
+    <section class="grid">
+      <div class="card">
+        <h3>Cyberpunk Rooftop Runner</h3>
+        <p>Fast arcade movement, wall‑slides, and pounce attacks in a neon skyline.</p>
+      </div>
+      <div class="card">
+        <h3>Scrap Upgrades</h3>
+        <p>Collect ⚙ scrap and upgrade jump, dash, and cosmetics.</p>
+      </div>
+      <div class="card">
+        <h3>Drone Encounters</h3>
+        <p>Outmaneuver drones and chain stylish pounce combos for bonus score.</p>
+      </div>
+    </section>
+
+    <footer>
+      © 2026 RoboCat. Play instantly in your browser.
+    </footer>
   </body>
 </html>

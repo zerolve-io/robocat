@@ -1,0 +1,9 @@
+{
+  "name": "RoboCat: Neon Dash",
+  "short_name": "RoboCat",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#00ffc8",
+  "icons": []
+}
