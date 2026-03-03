@@ -18,7 +18,7 @@ jobs:
   deploy-preview:
     name: Deploy Preview
     needs: ci
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
     if: github.ref == 'refs/heads/develop'
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +57,7 @@ jobs:
   deploy-production:
     name: Deploy Production
     needs: ci
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
