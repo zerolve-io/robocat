@@ -8,6 +8,7 @@ import {
   getHighScoreMeme,
   preloadCatImages,
 } from '../memes/CatMemes';
+import { trackEvent } from '../analytics';
 
 // Cyberpunk palette
 const COLORS = {
@@ -535,6 +536,7 @@ export class RunnerScene extends Phaser.Scene {
   private startGame(): void {
     if (this.started) return;
     this.started = true;
+    trackEvent('game_start');
     // Remove instructions
     this.children.list
       .filter(
@@ -1022,6 +1024,7 @@ export class RunnerScene extends Phaser.Scene {
     if (this.upgrades[type] >= 3) return;
     const cost = this.getUpgradeCost(type);
     if (this.scrapCount < cost) {
+      trackEvent('upgrade_insufficient_scrap', { type, cost, scrap: this.scrapCount });
       const nope = this.add
         .text(this.screenWidth / 2, this.screenHeight * 0.2, `Need ⚙ ${cost}`, {
           fontFamily: 'monospace',
@@ -1045,6 +1048,7 @@ export class RunnerScene extends Phaser.Scene {
     localStorage.setItem('robocat_scrap', String(this.scrapCount));
     this.saveUpgrades();
     this.applyUpgrades();
+    trackEvent('upgrade_purchased', { type, level: this.upgrades[type], cost });
 
     const toast = this.add
       .text(
@@ -1105,6 +1109,12 @@ export class RunnerScene extends Phaser.Scene {
       localStorage.setItem('robocat_highscore', String(this.highScore));
     }
     localStorage.setItem('robocat_scrap', String(this.scrapCount));
+    trackEvent('game_over', {
+      score: this.score,
+      best: this.highScore,
+      zone: this.currentZone.name,
+      scrap: this.scrapCount,
+    });
 
     // Get a cat meme
     const meme = getDeathMeme();
@@ -1325,8 +1335,18 @@ export class RunnerScene extends Phaser.Scene {
   private shareScore(): void {
     const text = `🐱⚡ ROBOCAT: Neon Dash\nScore: ${this.score} | Zone: ${this.currentZone.name}\nCan you beat me? 🏙️\nhttps://robocat-web-prod.pages.dev`;
     if (navigator.share) {
+      trackEvent('share_click', {
+        method: 'native',
+        score: this.score,
+        zone: this.currentZone.name,
+      });
       navigator.share({ title: 'ROBOCAT: Neon Dash', text }).catch(() => {});
     } else if (navigator.clipboard) {
+      trackEvent('share_click', {
+        method: 'clipboard',
+        score: this.score,
+        zone: this.currentZone.name,
+      });
       navigator.clipboard.writeText(text).then(() => {
         const copied = this.add
           .text(this.screenWidth / 2, this.screenHeight * 0.82, 'Copied to clipboard!', {
@@ -1361,6 +1381,9 @@ export class RunnerScene extends Phaser.Scene {
 
     this.score += 10;
     this.scrapCount += 1;
+    if (this.scrapCount % 10 === 0) {
+      trackEvent('scrap_milestone', { scrap: this.scrapCount });
+    }
     this.scoreText.setText(`SCORE: ${this.score}`);
     this.scrapText.setText(`⚙ ${this.scrapCount}`);
 

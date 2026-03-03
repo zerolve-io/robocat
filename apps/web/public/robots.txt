@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://robocat-web-prod.pages.dev/sitemap.xml

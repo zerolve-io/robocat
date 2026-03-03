@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Play RoboCat: Neon Dash</title>
+    <meta name="description" content="Play RoboCat: Neon Dash — a cyberpunk cat runner with drones, scrap upgrades, and neon city zones." />
+    <link rel="canonical" href="https://robocat-web-prod.pages.dev/play" />
+
+    <meta property="og:title" content="Play RoboCat: Neon Dash" />
+    <meta property="og:description" content="Dash rooftops, collect scrap, and upgrade your robo‑cat." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://robocat-web-prod.pages.dev/play" />
+    <meta property="og:image" content="https://robocat-web-prod.pages.dev/og.svg" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Play RoboCat: Neon Dash" />
+    <meta name="twitter:description" content="Dash rooftops, collect scrap, and upgrade your robo‑cat." />
+    <meta name="twitter:image" content="https://robocat-web-prod.pages.dev/og.svg" />
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+      }
+      body {
+        background: #0a0a0f;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100dvh;
+        overflow: hidden;
+        padding: 0;
+      }
+      canvas {
+        display: block;
+      }
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #00ffc8;
+        font-family: monospace;
+        font-size: 1.2rem;
+        text-align: center;
+        letter-spacing: 0.1em;
+      }
+      #loading .bar {
+        margin-top: 1rem;
+        width: 200px;
+        height: 4px;
+        background: #1a1a2e;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      #loading .bar::after {
+        content: '';
+        display: block;
+        width: 40%;
+        height: 100%;
+        background: #00ffc8;
+        animation: pulse 1s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: translateX(-100%);
+        }
+        50% {
+          transform: translateX(350%);
+        }
+      }
+      .seo-copy {
+        position: absolute;
+        left: -9999px;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading">
+      ROBOCAT<br />
+      <span style="font-size: 0.7rem; color: #666">LOADING...</span>
+      <div class="bar"></div>
+    </div>
+
+    <div class="seo-copy">
+      RoboCat: Neon Dash is a fast cyberpunk runner game where you jump rooftops, dodge drones,
+      collect scrap, and upgrade your robo‑cat with new parts and skins.
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
