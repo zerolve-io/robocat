@@ -69,6 +69,8 @@ export class RunnerScene extends Phaser.Scene {
   private catVisor?: Phaser.GameObjects.Rectangle;
   private catShoulderCannons: Phaser.GameObjects.Rectangle[] = [];
   private catEvolutionStage = 0;
+  private isZoneAnnouncing = false;
+  private deathRenderToken = 0;
 
   private score = 0;
   private highScore = 0;
@@ -132,6 +134,8 @@ export class RunnerScene extends Phaser.Scene {
     this.jumpBufferTimer = 0;
     this.wasOnGround = false;
     this.catEvolutionStage = 0;
+    this.isZoneAnnouncing = false;
+    this.deathRenderToken += 1;
 
     // Init sound
     soundManager.init();
@@ -954,7 +958,7 @@ export class RunnerScene extends Phaser.Scene {
     }
 
     const evoText = this.add
-      .text(this.screenWidth / 2, this.screenHeight * 0.22, `ROBO UPGRADE ${stage}/3`, {
+      .text(this.screenWidth / 2, this.screenHeight * 0.16, `ROBO UPGRADE ${stage}/3`, {
         fontFamily: 'monospace',
         fontSize: '14px',
         color: '#00ffcc',
@@ -1035,11 +1039,13 @@ export class RunnerScene extends Phaser.Scene {
     this.tweens.add({ targets: title, alpha: 1, y: title.y + 10, duration: 400 });
 
     // Cat meme image (loaded as DOM image, rendered as Phaser texture)
+    // Guard with token so an old death-image load can't leak into a restarted run.
+    const renderToken = this.deathRenderToken;
     const memeKey = `catmeme_${Date.now()}`;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      if (!this.scene.isActive()) return;
+      if (!this.scene.isActive() || this.deathRenderToken !== renderToken || !this.gameOver) return;
       try {
         this.textures.addImage(memeKey, img);
         const memeImg = this.add
@@ -1217,29 +1223,30 @@ export class RunnerScene extends Phaser.Scene {
       onComplete: () => pop.destroy(),
     });
 
-    // Occasional scrap meme
-    const scrapMeme = getScrapMeme();
+    // Occasional scrap meme (skip during zone announcements to avoid overlap clutter)
+    const scrapMeme = !this.isZoneAnnouncing ? getScrapMeme() : null;
     if (scrapMeme) {
       const memeText = this.add
-        .text(s.x, s.y - 40, scrapMeme, {
+        .text(s.x, s.y - 56, scrapMeme, {
           fontFamily: 'monospace',
-          fontSize: '12px',
+          fontSize: '11px',
           color: '#ffcc00',
           fontStyle: 'italic',
         })
         .setOrigin(0.5)
-        .setAlpha(0.9);
+        .setAlpha(0.85);
       this.tweens.add({
         targets: memeText,
-        y: memeText.y - 50,
+        y: memeText.y - 45,
         alpha: 0,
-        duration: 1000,
+        duration: 900,
         onComplete: () => memeText.destroy(),
       });
     }
   }
 
   private restart(): void {
+    this.deathRenderToken += 1;
     this.scene.restart();
   }
 
@@ -1430,6 +1437,7 @@ export class RunnerScene extends Phaser.Scene {
 
   private onZoneTransition(newZone: ZoneConfig): void {
     this.currentZone = newZone;
+    this.isZoneAnnouncing = true;
     soundManager.zoneTransition();
 
     // Update zone indicator
@@ -1478,27 +1486,30 @@ export class RunnerScene extends Phaser.Scene {
       onComplete: () => {
         announce.destroy();
         announceBg.destroy();
+        this.isZoneAnnouncing = false;
       },
     });
 
-    // Cat meme for zone transition
-    const zoneMeme = getZoneMeme();
-    const memeCaption = this.add
-      .text(this.screenWidth / 2, announceY + 36, zoneMeme.caption, {
-        fontFamily: 'monospace',
-        fontSize: '13px',
-        color: '#ffcc00',
-        fontStyle: 'italic',
-      })
-      .setOrigin(0.5)
-      .setAlpha(0.8);
-    this.tweens.add({
-      targets: memeCaption,
-      alpha: 0,
-      y: memeCaption.y - 30,
-      duration: 2000,
-      onComplete: () => memeCaption.destroy(),
-    });
+    // Cat meme for zone transition (desktop only to avoid mobile text clutter)
+    if (this.screenWidth >= 900) {
+      const zoneMeme = getZoneMeme();
+      const memeCaption = this.add
+        .text(this.screenWidth / 2, announceY + 36, zoneMeme.caption, {
+          fontFamily: 'monospace',
+          fontSize: '13px',
+          color: '#ffcc00',
+          fontStyle: 'italic',
+        })
+        .setOrigin(0.5)
+        .setAlpha(0.8);
+      this.tweens.add({
+        targets: memeCaption,
+        alpha: 0,
+        y: memeCaption.y - 30,
+        duration: 2000,
+        onComplete: () => memeCaption.destroy(),
+      });
+    }
 
     // Screen shake
     this.cameras.main.shake(200, 0.01);
