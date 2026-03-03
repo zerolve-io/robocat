@@ -28,7 +28,6 @@ const SCRAPS_STORAGE_KEY = 'robocat_total_scraps';
 
 export function loadTotalScraps(): number {
   try {
-    // eslint-disable-next-line no-undef
     return parseInt(localStorage.getItem(SCRAPS_STORAGE_KEY) ?? '0', 10) || 0;
   } catch {
     return 0;
@@ -37,7 +36,6 @@ export function loadTotalScraps(): number {
 
 export function saveTotalScraps(n: number): void {
   try {
-    // eslint-disable-next-line no-undef
     localStorage.setItem(SCRAPS_STORAGE_KEY, String(n));
   } catch {
     // ignore

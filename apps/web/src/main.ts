@@ -1,4 +1,3 @@
-/* eslint-disable no-undef */
 console.log('[ROBOCAT] main.ts loading...');
 
 import Phaser from 'phaser';
