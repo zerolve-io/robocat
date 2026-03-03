@@ -64,6 +64,12 @@ export class RunnerScene extends Phaser.Scene {
   private thrusterFireL!: Phaser.GameObjects.Rectangle;
   private thrusterFireR!: Phaser.GameObjects.Rectangle;
 
+  // Evolution visuals (unlocked as score rises)
+  private catArmorPlates: Phaser.GameObjects.Rectangle[] = [];
+  private catVisor?: Phaser.GameObjects.Rectangle;
+  private catShoulderCannons: Phaser.GameObjects.Rectangle[] = [];
+  private catEvolutionStage = 0;
+
   private score = 0;
   private highScore = 0;
   private scoreText!: Phaser.GameObjects.Text;
@@ -125,6 +131,7 @@ export class RunnerScene extends Phaser.Scene {
     this.coyoteTimer = 0;
     this.jumpBufferTimer = 0;
     this.wasOnGround = false;
+    this.catEvolutionStage = 0;
 
     // Init sound
     soundManager.init();
@@ -411,6 +418,20 @@ export class RunnerScene extends Phaser.Scene {
     const gearT3 = this.add.rectangle(-9, -2, 3, 2, COLORS.catGear);
     const gearT4 = this.add.rectangle(5, -2, 3, 2, COLORS.catGear);
     this.cat.add([gear, gearCenter, gearT1, gearT2, gearT3, gearT4]);
+
+    // ── Evolution unlock parts (hidden at start) ──
+    const armor1 = this.add.rectangle(-6, -8, 10, 6, 0x8899aa).setAlpha(0);
+    const armor2 = this.add.rectangle(6, -8, 10, 6, 0x8899aa).setAlpha(0);
+    const armor3 = this.add.rectangle(0, 10, 20, 4, 0x667788).setAlpha(0);
+    this.catArmorPlates = [armor1, armor2, armor3];
+
+    this.catVisor = this.add.rectangle(21, -15, 16, 4, 0xff2a6d).setAlpha(0);
+
+    const cannonL = this.add.rectangle(-16, -10, 8, 4, 0x4d5a6a).setAlpha(0);
+    const cannonR = this.add.rectangle(-16, 10, 8, 4, 0x4d5a6a).setAlpha(0);
+    this.catShoulderCannons = [cannonL, cannonR];
+
+    this.cat.add([...this.catArmorPlates, this.catVisor, ...this.catShoulderCannons]);
 
     // ── Physics ──
     this.physics.add.existing(this.cat);
@@ -913,6 +934,42 @@ export class RunnerScene extends Phaser.Scene {
     });
   }
 
+  private updateCatEvolution(): void {
+    // Stage unlocks by score:
+    // 1: armor plates, 2: visor, 3: shoulder cannons + stronger thrusters
+    const stage = this.score >= 150 ? 3 : this.score >= 75 ? 2 : this.score >= 30 ? 1 : 0;
+    if (stage === this.catEvolutionStage) return;
+    this.catEvolutionStage = stage;
+
+    if (stage >= 1) {
+      this.catArmorPlates.forEach((p) => p.setAlpha(1));
+    }
+    if (stage >= 2 && this.catVisor) {
+      this.catVisor.setAlpha(0.95);
+    }
+    if (stage >= 3) {
+      this.catShoulderCannons.forEach((c) => c.setAlpha(1));
+      this.thrusterL.setFillStyle(0x88c0ff);
+      this.thrusterR.setFillStyle(0x88c0ff);
+    }
+
+    const evoText = this.add
+      .text(this.screenWidth / 2, this.screenHeight * 0.22, `ROBO UPGRADE ${stage}/3`, {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#00ffcc',
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.9);
+    this.tweens.add({
+      targets: evoText,
+      alpha: 0,
+      y: evoText.y - 30,
+      duration: 1200,
+      onComplete: () => evoText.destroy(),
+    });
+  }
+
   private createTrail(): void {
     for (let i = 0; i < 3; i++) {
       const particle = this.add.circle(
@@ -1254,6 +1311,9 @@ export class RunnerScene extends Phaser.Scene {
       this.onZoneTransition(newZone);
     }
 
+    // Cat upgrades as score increases
+    this.updateCatEvolution();
+
     // Dynamic scroll speed from current zone
     const speedGain = (this.score - this.currentZone.scoreThreshold) * 0.5;
     const currentSpeed = Math.min(
@@ -1392,27 +1452,41 @@ export class RunnerScene extends Phaser.Scene {
     });
 
     // Zone announcement
+    const announceY = this.screenHeight * 0.28;
+    const announceBg = this.add.rectangle(
+      this.screenWidth / 2,
+      announceY,
+      Math.min(this.screenWidth * 0.8, 360),
+      50,
+      0x000000
+    );
+    announceBg.setAlpha(0.35);
+
     const announce = this.add
-      .text(this.screenWidth / 2, this.screenHeight / 3, `» ${newZone.name} «`, {
+      .text(this.screenWidth / 2, announceY, `» ${newZone.name} «`, {
         fontFamily: 'monospace',
-        fontSize: '32px',
+        fontSize: this.screenWidth < 900 ? '22px' : '32px',
         color: '#ffffff',
       })
       .setOrigin(0.5);
+
     this.tweens.add({
-      targets: announce,
+      targets: [announce, announceBg],
       alpha: 0,
-      y: this.screenHeight / 3 - 50,
+      y: announceY - 40,
       duration: 1500,
-      onComplete: () => announce.destroy(),
+      onComplete: () => {
+        announce.destroy();
+        announceBg.destroy();
+      },
     });
 
     // Cat meme for zone transition
     const zoneMeme = getZoneMeme();
     const memeCaption = this.add
-      .text(this.screenWidth / 2, this.screenHeight / 3 + 40, zoneMeme.caption, {
+      .text(this.screenWidth / 2, announceY + 36, zoneMeme.caption, {
         fontFamily: 'monospace',
-        fontSize: '14px',
+        fontSize: '13px',
         color: '#ffcc00',
         fontStyle: 'italic',
       })
@@ -1476,17 +1550,32 @@ export class RunnerScene extends Phaser.Scene {
   private spawnDrone(x: number, y: number): void {
     const drone = this.add.container(x, y);
 
-    // Drone body
-    const body = this.add.rectangle(0, 0, 30, 15, COLORS.drone);
-    drone.add(body);
+    // Drone core body (hex-ish)
+    const core = this.add.rectangle(0, 0, 26, 18, 0x222a33);
+    const coreInner = this.add.rectangle(0, 0, 18, 10, COLORS.drone);
+    drone.add(core);
+    drone.add(coreInner);
 
-    // Eye
-    const eye = this.add.circle(8, 0, 4, 0xffffff);
-    drone.add(eye);
+    // Side arms
+    const armL = this.add.rectangle(-22, 0, 10, 4, 0x445566);
+    const armR = this.add.rectangle(22, 0, 10, 4, 0x445566);
+    drone.add([armL, armR]);
+
+    // Rotors
+    const rotorL = this.add.circle(-28, 0, 7, 0x666666);
+    const rotorR = this.add.circle(28, 0, 7, 0x666666);
+    const rotorLInner = this.add.circle(-28, 0, 3, 0x999999);
+    const rotorRInner = this.add.circle(28, 0, 3, 0x999999);
+    drone.add([rotorL, rotorR, rotorLInner, rotorRInner]);
+
+    // Camera eye + lens glow
+    const cam = this.add.circle(8, 2, 4, 0xffffff);
+    const camGlow = this.add.circle(8, 2, 7, 0xff2a6d).setAlpha(0.25);
+    drone.add([camGlow, cam]);
 
     // Vision cone (triangle pointing down-left)
-    const cone = this.add.triangle(-20, 20, 0, 0, 40, 30, 0, 30, COLORS.droneCone);
-    cone.setAlpha(0.3);
+    const cone = this.add.triangle(-18, 22, 0, 0, 36, 30, 0, 30, COLORS.droneCone);
+    cone.setAlpha(0.25);
     drone.add(cone);
 
     // Hover animation
@@ -1501,8 +1590,8 @@ export class RunnerScene extends Phaser.Scene {
 
     this.physics.add.existing(drone);
     const droneBody = drone.body as Phaser.Physics.Arcade.Body;
-    droneBody.setSize(50, 50);
-    droneBody.setOffset(-25, -25);
+    droneBody.setSize(60, 40);
+    droneBody.setOffset(-30, -20);
     droneBody.setAllowGravity(false);
 
     this.drones.add(drone);
