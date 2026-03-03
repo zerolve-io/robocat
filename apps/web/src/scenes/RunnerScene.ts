@@ -296,7 +296,7 @@ export class RunnerScene extends Phaser.Scene {
       const shade = Phaser.Math.Between(0x08, 0x15);
       const color = (shade << 16) | (shade << 8) | (shade + 0x10);
 
-      this.add.rectangle(x, this.screenHeight - height / 2, width, height, color).setAlpha(0.5);
+      this.add.rectangle(x, this.worldBottom - height / 2, width, height, color).setAlpha(0.5);
     }
   }
 
@@ -428,6 +428,17 @@ export class RunnerScene extends Phaser.Scene {
     return this.scale.height;
   }
 
+  // Bottom bound for gameplay to avoid mobile browser UI overlap (Safari/Chrome bars)
+  private get worldBottom(): number {
+    const isMobile = this.screenWidth < 900;
+    if (!isMobile) return this.screenHeight;
+
+    const vv = window.visualViewport;
+    const occluded = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    // Keep a minimum safety margin on mobile even if occlusion reports 0
+    return this.screenHeight - Math.max(40, occluded + 24);
+  }
+
   private spawnInitialBuildings(): void {
     let x = 0;
     const z = this.currentZone;
@@ -446,7 +457,7 @@ export class RunnerScene extends Phaser.Scene {
   }
 
   private spawnBuilding(x: number, height: number, width: number): Phaser.GameObjects.Rectangle {
-    const y = this.screenHeight - height / 2;
+    const y = this.worldBottom - height / 2;
 
     // Main building
     const building = this.add.rectangle(x, y, width, height, COLORS.building);
@@ -1052,7 +1063,7 @@ export class RunnerScene extends Phaser.Scene {
 
     // Share button
     const shareBtn = this.add
-      .text(this.screenWidth / 2 - 70, this.screenHeight * 0.87, '📤 SHARE', {
+      .text(this.screenWidth / 2 - 70, this.screenHeight * 0.8, '📤 SHARE', {
         fontFamily: 'monospace',
         fontSize: '18px',
         color: '#05d9e8',
@@ -1067,7 +1078,7 @@ export class RunnerScene extends Phaser.Scene {
 
     // Retry button
     const retryBtn = this.add
-      .text(this.screenWidth / 2 + 70, this.screenHeight * 0.87, '🔄 RETRY', {
+      .text(this.screenWidth / 2 + 70, this.screenHeight * 0.8, '🔄 RETRY', {
         fontFamily: 'monospace',
         fontSize: '18px',
         color: '#00ff88',
@@ -1082,7 +1093,7 @@ export class RunnerScene extends Phaser.Scene {
 
     // Tap to retry hint
     this.add
-      .text(this.screenWidth / 2, this.screenHeight * 0.94, 'SPACE / TAP to retry', {
+      .text(this.screenWidth / 2, this.screenHeight * 0.86, 'SPACE / TAP to retry', {
         fontFamily: 'monospace',
         fontSize: '12px',
         color: '#555555',
@@ -1336,12 +1347,12 @@ export class RunnerScene extends Phaser.Scene {
 
       // Maybe spawn drone
       if (Math.random() < z.droneChance) {
-        this.spawnDrone(x, this.screenHeight - height - 60);
+        this.spawnDrone(x, this.worldBottom - height - 60);
       }
 
       // Maybe spawn scrap
       if (Math.random() < z.scrapChance) {
-        this.spawnScrap(x - width / 4, this.screenHeight - height - 40);
+        this.spawnScrap(x - width / 4, this.worldBottom - height - 40);
       }
     }
 
