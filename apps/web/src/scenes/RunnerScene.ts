@@ -47,6 +47,7 @@ const POUNCE_BOUNCE = -450; // bounce after hitting drone
 export class RunnerScene extends Phaser.Scene {
   private cat!: Phaser.GameObjects.Container;
   private catBody!: Phaser.Physics.Arcade.Body;
+  private catHull!: Phaser.GameObjects.Rectangle;
   private buildings!: Phaser.GameObjects.Group;
   private drones!: Phaser.GameObjects.Group;
   private scraps!: Phaser.GameObjects.Group;
@@ -71,6 +72,12 @@ export class RunnerScene extends Phaser.Scene {
   private catEvolutionStage = 0;
   private isZoneAnnouncing = false;
   private deathRenderToken = 0;
+
+  // Persistent upgrades
+  private upgrades = { jump: 0, dash: 0, skin: 0 };
+  private jumpVelocity = JUMP_VELOCITY;
+  private doubleJumpVelocity = DOUBLE_JUMP_VELOCITY;
+  private dashVelocity = DASH_VELOCITY;
 
   private score = 0;
   private highScore = 0;
@@ -170,6 +177,8 @@ export class RunnerScene extends Phaser.Scene {
 
     // Cat
     this.createCat();
+    this.loadUpgrades();
+    this.applyUpgrades();
 
     // HUD
     this.scoreText = this.add.text(20, 20, 'SCORE: 0', {
@@ -350,6 +359,7 @@ export class RunnerScene extends Phaser.Scene {
     const belly = this.add.rectangle(0, 4, 40, 20, COLORS.catDark);
     // Main torso
     const torso = this.add.rectangle(0, -2, 38, 22, COLORS.cat);
+    this.catHull = torso;
     // Panel line across chest
     const panelLine1 = this.add.rectangle(0, -10, 36, 2, COLORS.catPanel);
     // Vertical rivet lines
@@ -561,7 +571,7 @@ export class RunnerScene extends Phaser.Scene {
 
     // Ground jump (includes coyote time)
     if (onGround || this.coyoteTimer > 0) {
-      this.catBody.setVelocityY(JUMP_VELOCITY);
+      this.catBody.setVelocityY(this.jumpVelocity);
       this.canDoubleJump = true;
       this.coyoteTimer = 0; // consume coyote
       this.jumpBufferTimer = 0;
@@ -572,7 +582,7 @@ export class RunnerScene extends Phaser.Scene {
 
     // Double jump (air)
     if (this.canDoubleJump && !onGround) {
-      this.catBody.setVelocityY(DOUBLE_JUMP_VELOCITY);
+      this.catBody.setVelocityY(this.doubleJumpVelocity);
       this.canDoubleJump = false;
       this.createDoubleJumpEffect();
       soundManager.doubleJump();
@@ -593,7 +603,7 @@ export class RunnerScene extends Phaser.Scene {
     this.canDash = false;
     this.dashEndTime = this.time.now + DASH_DURATION;
 
-    this.catBody.setVelocityX(DASH_VELOCITY);
+    this.catBody.setVelocityX(this.dashVelocity);
     this.catBody.setVelocityY(0);
     this.catBody.setAllowGravity(false);
 
@@ -974,6 +984,89 @@ export class RunnerScene extends Phaser.Scene {
     });
   }
 
+  private getUpgradeCost(type: 'jump' | 'dash' | 'skin'): number {
+    const level = this.upgrades[type];
+    if (type === 'skin') return 30 + level * 30;
+    return 20 + level * 20;
+  }
+
+  private loadUpgrades(): void {
+    try {
+      const raw = localStorage.getItem('robocat_upgrades');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<typeof this.upgrades>;
+      this.upgrades.jump = Phaser.Math.Clamp(parsed.jump ?? 0, 0, 3);
+      this.upgrades.dash = Phaser.Math.Clamp(parsed.dash ?? 0, 0, 3);
+      this.upgrades.skin = Phaser.Math.Clamp(parsed.skin ?? 0, 0, 3);
+    } catch {
+      // Ignore malformed localStorage
+    }
+  }
+
+  private saveUpgrades(): void {
+    localStorage.setItem('robocat_upgrades', JSON.stringify(this.upgrades));
+  }
+
+  private applyUpgrades(): void {
+    this.jumpVelocity = JUMP_VELOCITY - this.upgrades.jump * 20;
+    this.doubleJumpVelocity = DOUBLE_JUMP_VELOCITY - this.upgrades.jump * 15;
+    this.dashVelocity = DASH_VELOCITY + this.upgrades.dash * 40;
+
+    if (this.catHull) {
+      const hullColors = [0x5f6b7a, 0x6f7f90, 0x7f93a8, 0x8fb0c8];
+      this.catHull.setFillStyle(hullColors[this.upgrades.skin] ?? hullColors[0]);
+    }
+  }
+
+  private tryBuyUpgrade(type: 'jump' | 'dash' | 'skin'): void {
+    if (this.upgrades[type] >= 3) return;
+    const cost = this.getUpgradeCost(type);
+    if (this.scrapCount < cost) {
+      const nope = this.add
+        .text(this.screenWidth / 2, this.screenHeight * 0.2, `Need ⚙ ${cost}`, {
+          fontFamily: 'monospace',
+          fontSize: '14px',
+          color: '#ff6b6b',
+        })
+        .setOrigin(0.5);
+      this.tweens.add({
+        targets: nope,
+        alpha: 0,
+        y: nope.y - 20,
+        duration: 700,
+        onComplete: () => nope.destroy(),
+      });
+      return;
+    }
+
+    this.scrapCount -= cost;
+    this.upgrades[type] += 1;
+    this.scrapText.setText(`⚙ ${this.scrapCount}`);
+    localStorage.setItem('robocat_scrap', String(this.scrapCount));
+    this.saveUpgrades();
+    this.applyUpgrades();
+
+    const toast = this.add
+      .text(
+        this.screenWidth / 2,
+        this.screenHeight * 0.18,
+        `${type.toUpperCase()} UPGRADE Lv.${this.upgrades[type]}`,
+        {
+          fontFamily: 'monospace',
+          fontSize: '14px',
+          color: '#00ffc8',
+        }
+      )
+      .setOrigin(0.5);
+    this.tweens.add({
+      targets: toast,
+      alpha: 0,
+      y: toast.y - 25,
+      duration: 900,
+      onComplete: () => toast.destroy(),
+    });
+  }
+
   private createTrail(): void {
     for (let i = 0; i < 3; i++) {
       const particle = this.add.circle(
@@ -1110,6 +1203,70 @@ export class RunnerScene extends Phaser.Scene {
       .setAlpha(0);
     this.tweens.add({ targets: statsLine, alpha: 1, duration: 300, delay: 550 });
 
+    // Simple upgrade shop (death screen)
+    const shopY = this.screenHeight * 0.86;
+    this.add
+      .text(this.screenWidth / 2, shopY - 16, 'UPGRADE SHOP (tap)', {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#00ffc8',
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.9);
+
+    const mkLabel = (type: 'jump' | 'dash' | 'skin') => {
+      const level = this.upgrades[type];
+      const cost = this.getUpgradeCost(type);
+      const name = type.toUpperCase();
+      return level >= 3 ? `${name} MAX` : `${name} +1 (⚙ ${cost})`;
+    };
+
+    const jumpBtn = this.add
+      .text(this.screenWidth / 2 - 120, shopY, mkLabel('jump'), {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    const dashBtn = this.add
+      .text(this.screenWidth / 2, shopY, mkLabel('dash'), {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    const skinBtn = this.add
+      .text(this.screenWidth / 2 + 120, shopY, mkLabel('skin'), {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    const refreshShop = () => {
+      jumpBtn.setText(mkLabel('jump'));
+      dashBtn.setText(mkLabel('dash'));
+      skinBtn.setText(mkLabel('skin'));
+    };
+
+    jumpBtn.on('pointerdown', () => {
+      this.tryBuyUpgrade('jump');
+      refreshShop();
+    });
+    dashBtn.on('pointerdown', () => {
+      this.tryBuyUpgrade('dash');
+      refreshShop();
+    });
+    skinBtn.on('pointerdown', () => {
+      this.tryBuyUpgrade('skin');
+      refreshShop();
+    });
+
     // High score celebration meme
     if (isNewBest) {
       const hsMeme = this.add
@@ -1126,7 +1283,7 @@ export class RunnerScene extends Phaser.Scene {
 
     // Share button
     const shareBtn = this.add
-      .text(this.screenWidth / 2 - 70, this.screenHeight * 0.8, '📤 SHARE', {
+      .text(this.screenWidth / 2 - 70, this.screenHeight * 0.92, '📤 SHARE', {
         fontFamily: 'monospace',
         fontSize: '18px',
         color: '#05d9e8',
@@ -1141,7 +1298,7 @@ export class RunnerScene extends Phaser.Scene {
 
     // Retry button
     const retryBtn = this.add
-      .text(this.screenWidth / 2 + 70, this.screenHeight * 0.8, '🔄 RETRY', {
+      .text(this.screenWidth / 2 + 70, this.screenHeight * 0.92, '🔄 RETRY', {
         fontFamily: 'monospace',
         fontSize: '18px',
         color: '#00ff88',
@@ -1156,7 +1313,7 @@ export class RunnerScene extends Phaser.Scene {
 
     // Tap to retry hint
     this.add
-      .text(this.screenWidth / 2, this.screenHeight * 0.86, 'SPACE / TAP to retry', {
+      .text(this.screenWidth / 2, this.screenHeight * 0.96, 'SPACE / TAP to retry', {
         fontFamily: 'monospace',
         fontSize: '12px',
         color: '#555555',
@@ -1271,7 +1428,7 @@ export class RunnerScene extends Phaser.Scene {
     if (this.jumpBufferTimer > 0) {
       this.jumpBufferTimer = Math.max(0, this.jumpBufferTimer - delta);
       if (onGround || this.coyoteTimer > 0) {
-        this.catBody.setVelocityY(JUMP_VELOCITY);
+        this.catBody.setVelocityY(this.jumpVelocity);
         this.canDoubleJump = true;
         this.coyoteTimer = 0;
         this.jumpBufferTimer = 0;
